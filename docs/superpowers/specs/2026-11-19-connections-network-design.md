@@ -399,8 +399,12 @@ section is silent, follow the blueprint's conventions.
   `supabase start`.
   - Extensions: `pgcrypto` and `pg_trgm`. `pg_trgm` is used for autocomplete in
     v0.1 and fuzzy duplicate matching in v0.2.
-  - Path finding uses recursive SQL queries. That is enough at personal scale
-    (thousands of people). No graph database.
+  - Path finding runs Dijkstra (and Yen's k-shortest paths for alternatives)
+    in Python over the network's connections, loaded per request. That is
+    enough at personal scale (thousands of people). No graph database.
+    *(Changed from recursive SQL while planning, with the owner's approval: a
+    recursive query over a weighted, cyclic graph with no depth cut-off
+    enumerates every simple path, which grows exponentially.)*
 - **Deploy:** GitHub Actions → GHCR → bunny.net, with the API and web
   containers in one app behind Nginx, as in the blueprint.
 - **CI (trimmed `ci.yml`):** lint (including the i18n key check), backend

@@ -241,6 +241,7 @@
     "loadFailed": "Could not load this list.",
     "gone": "This person no longer exists. The list was refreshed.",
     "duplicates": {
+      "record": "Record {{n}}",
       "intro": "These people share a phone number, email or link. Keep one record and merge the other into it, or say they are different people.",
       "empty": "No possible duplicates.",
       "matchedOn": {
@@ -255,7 +256,7 @@
       "dismissed": "Marked as different people.",
       "mergeDialog": {
         "title": "Keep {{keep}}?",
-        "body": "{{drop}} is merged into {{keep}} and then deleted. Their connections and details move to {{keep}}, and where both have a value, the more complete one is kept. This cannot be undone.",
+        "body": "{{keep}} keeps its own details, and {{drop}} only fills in what {{keep}} is missing. Connections, skills and contact details are combined. {{drop}} is then deleted. This cannot be undone.",
         "confirm": "Merge"
       }
     },

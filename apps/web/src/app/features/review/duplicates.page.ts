@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { Router, RouterLink } from '@angular/router';
-import { TranslatePipe } from '@ngx-translate/core';
+import { TranslatePipe, TranslateService } from '@ngx-translate/core';
 import type {
   DismissRequest,
   DuplicatePair,
@@ -70,6 +70,7 @@ const MATCH_KEYS: Record<DuplicatePair['matched_on'][number], string> = {
               <div class="sides">
                 @for (side of [{ keep: pair.a, drop: pair.b }, { keep: pair.b, drop: pair.a }]; track side.keep.person_id; let first = $first) {
                   <section class="side">
+                    <p class="record">{{ 'review.duplicates.record' | translate: { n: first ? 1 : 2 } }}</p>
                     <h2 class="side-name" [id]="'dup-' + i + (first ? '-a' : '-b')">
                       <a class="name" [routerLink]="['/people', side.keep.person_id]">{{ side.keep.display_name }}</a>
                     </h2>
@@ -82,7 +83,7 @@ const MATCH_KEYS: Record<DuplicatePair['matched_on'][number], string> = {
                       class="keep"
                       [disabled]="busy()"
                       [attr.aria-describedby]="'dup-' + i + (first ? '-a' : '-b')"
-                      (click)="merge(side.keep, side.drop)"
+                      (click)="merge(side.keep, side.drop, first)"
                     >
                       {{ (busy() ? 'review.duplicates.working' : 'review.duplicates.keep') | translate }}
                     </button>
@@ -125,6 +126,10 @@ const MATCH_KEYS: Record<DuplicatePair['matched_on'][number], string> = {
       border-radius: 8px;
       background: var(--mat-sys-surface);
     }
+    .record {
+      color: var(--mat-sys-on-surface-variant);
+      font: var(--mat-sys-label-medium);
+    }
     .side-name {
       margin: 0;
     }
@@ -150,6 +155,7 @@ export class DuplicatesPage {
   private readonly api = inject(ApiClient);
   private readonly dialog = inject(MatDialog);
   private readonly router = inject(Router);
+  private readonly translate = inject(TranslateService);
 
   protected readonly state = signal<LoadState>('loading');
   protected readonly pairs = signal<DuplicatePair[]>([]);
@@ -178,12 +184,25 @@ export class DuplicatesPage {
     return MATCH_KEYS[reason];
   }
 
-  protected merge(keep: PersonSummary, drop: PersonSummary): void {
+  /**
+   * Duplicates are often the same name twice, so the dialog names each record by its number on
+   * the page and its detail ("Sara Mahmoud (Record 2 · Marketing · Cairo)"). The number is
+   * position, not left or right, so it reads the same in Arabic.
+   */
+  private label(person: PersonSummary, number: 1 | 2): string {
+    const record = this.translate.instant('review.duplicates.record', { n: number }) as string;
+    return `${person.display_name} (${[record, this.detail(person)].filter(Boolean).join(' · ')})`;
+  }
+
+  protected merge(keep: PersonSummary, drop: PersonSummary, keepIsFirst: boolean): void {
     const data: ConfirmDialogData = {
       titleKey: 'review.duplicates.mergeDialog.title',
       bodyKey: 'review.duplicates.mergeDialog.body',
       confirmKey: 'review.duplicates.mergeDialog.confirm',
-      params: { keep: keep.display_name, drop: drop.display_name },
+      params: {
+        keep: this.label(keep, keepIsFirst ? 1 : 2),
+        drop: this.label(drop, keepIsFirst ? 2 : 1),
+      },
     };
     this.dialog
       .open(ConfirmDialog, { data })

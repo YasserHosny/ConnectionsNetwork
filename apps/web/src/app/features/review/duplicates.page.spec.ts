@@ -17,6 +17,11 @@ const PAIR: DuplicatePair = {
   b: { person_id: 'b-1', display_name: 'Sarah M.', profession: null, city: null },
   matched_on: ['phone', 'email'],
 };
+const SAME_NAME: DuplicatePair = {
+  a: { person_id: 'a-1', display_name: 'Sara Mahmoud', profession: 'Marketing', city: 'Cairo' },
+  b: { person_id: 'b-1', display_name: 'Sara Mahmoud', profession: null, city: null },
+  matched_on: ['phone'],
+};
 const OTHER: DuplicatePair = {
   a: { person_id: 'c-1', display_name: 'Omar Ali', profession: null, city: 'Giza' },
   b: { person_id: 'd-1', display_name: 'Omar A.', profession: null, city: null },
@@ -126,16 +131,60 @@ describe('DuplicatesPage', () => {
     });
   }
 
-  it('asks which record is kept and warns that merging cannot be undone', async () => {
+  it('asks which record is kept, naming both by record number and detail', async () => {
     await open();
 
     keepButton(1).click();
     await waitFor(fixture(), () => dialog());
 
-    const text = dialog()?.textContent ?? '';
-    expect(text).toContain('Keep Sarah M.?');
-    expect(text).toContain('Sara Mahmoud is merged into Sarah M. and then deleted');
-    expect(text).toContain('cannot be undone');
+    expect(dialog()?.querySelector('h2')?.textContent).toContain('Keep Sarah M. (Record 2)?');
+    const body = dialog()?.querySelector('mat-dialog-content')?.textContent ?? '';
+    expect(body).toContain('Sarah M. (Record 2) keeps its own details');
+    expect(body).toContain('Sara Mahmoud (Record 1 · Marketing · Cairo) only fills in what Sarah M. (Record 2) is missing');
+    expect(body).toContain('Sara Mahmoud (Record 1 · Marketing · Cairo) is then deleted');
+  });
+
+  it('says what the merge really does: the kept record wins, the other only fills blanks', async () => {
+    await open();
+
+    keepButton(0).click();
+    await waitFor(fixture(), () => dialog());
+
+    const body = dialog()?.querySelector('mat-dialog-content')?.textContent ?? '';
+    expect(body).toContain('keeps its own details');
+    expect(body).toContain('only fills in what');
+    expect(body).toContain('Connections, skills and contact details are combined');
+    expect(body).toContain('cannot be undone');
+    // The old wording promised a field-by-field "more complete" pick, which is not what happens.
+    expect(body).not.toContain('more complete');
+  });
+
+  it('tells two records with the same name apart in the dialog', async () => {
+    await open([SAME_NAME]);
+    const titles: string[] = [];
+    const bodies: string[] = [];
+
+    for (const side of [0, 1]) {
+      keepButton(side).click();
+      await waitFor(fixture(), () => dialog());
+      titles.push(dialog()?.querySelector('h2')?.textContent ?? '');
+      bodies.push(dialog()?.querySelector('mat-dialog-content')?.textContent ?? '');
+      dialogButton('dialog-cancel')?.click();
+      await closeDialog();
+    }
+
+    expect(titles[0]).toContain('Keep Sara Mahmoud (Record 1 · Marketing · Cairo)?');
+    expect(titles[1]).toContain('Keep Sara Mahmoud (Record 2)?');
+    expect(titles[0]).not.toBe(titles[1]);
+    // The record being dropped is named by its own number, so the sentence is never "X into X".
+    expect(bodies[0]).toContain('Sara Mahmoud (Record 2) only fills in what Sara Mahmoud (Record 1 · Marketing · Cairo) is missing');
+    expect(bodies[1]).toContain('Sara Mahmoud (Record 1 · Marketing · Cairo) only fills in what Sara Mahmoud (Record 2) is missing');
+  });
+
+  it('numbers the two records on the cards the same way', async () => {
+    await open([SAME_NAME]);
+
+    expect(sides().map((s) => s.querySelector('.record')?.textContent?.trim())).toEqual(['Record 1', 'Record 2']);
   });
 
   it('sends nothing when the merge is cancelled', async () => {

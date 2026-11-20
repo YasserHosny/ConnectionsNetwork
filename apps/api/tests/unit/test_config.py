@@ -47,3 +47,16 @@ def test_validation_errors_never_echo_secret_values(monkeypatch: pytest.MonkeyPa
 
     assert "fake-anon-key-for-tests-only" not in str(excinfo.value)
     assert "postgres:postgres" not in str(excinfo.value)
+
+
+def test_jwt_secret_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SUPABASE_JWT_SECRET")
+
+    assert Settings().supabase_jwt_secret is None
+
+
+def test_jwt_secret_is_a_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings()
+
+    assert settings.supabase_jwt_secret is not None
+    assert "test-secret-value" not in repr(settings)

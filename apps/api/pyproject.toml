@@ -13,14 +13,23 @@ dependencies = [
     "pydantic>=2.10,<3",
     "pydantic-settings>=2.7,<3",
     "psycopg[binary]>=3.2,<4",
+    "python-jose[cryptography]==3.3.0",
+    # Direct, not transitive: python-jose's ES256 verification needs it, and security-critical
+    # code should not depend on a transitive pin.
+    "cryptography>=44",
+    # jwks.py fetches the signing keys at runtime.
+    "httpx==0.28.1",
 ]
 
 [dependency-groups]
 dev = [
     "pytest==8.3.4",
-    "httpx==0.28.1",
     "ruff",
 ]
+
+[tool.uv]
+# Transitive floor, not a direct dependency: pyasn1 arrives via python-jose and rsa (as in PP).
+constraint-dependencies = ["pyasn1>=0.6.5"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/connections_api"]

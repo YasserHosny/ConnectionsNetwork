@@ -45,6 +45,13 @@ class ForbiddenError(AppError):
     safe_message = "Action is not permitted."
 
 
+class MfaRequiredError(ForbiddenError):
+    """The caller is an admin but this session has not completed TOTP MFA (JWT aal != aal2)."""
+
+    code = "mfa_required"
+    safe_message = "Multi-factor authentication is required."
+
+
 class NotFoundError(AppError):
     status_code = status.HTTP_404_NOT_FOUND
     code = "not_found"

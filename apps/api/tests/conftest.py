@@ -18,6 +18,7 @@ TEST_ENV: dict[str, str] = {
     "API_CORS_ORIGINS": "http://localhost:4200",
     "SUPABASE_URL": "http://localhost:54321",
     "SUPABASE_ANON_KEY": "fake-anon-key-for-tests-only",
+    "SUPABASE_JWT_SECRET": "test-secret-value-not-used-anywhere-real",
     "SUPABASE_JWT_AUDIENCE": "authenticated",
     "SUPABASE_JWT_ISSUER": "http://localhost:54321/auth/v1",
     # A caller that already has its own Postgres (scripts/test-db.sh, CI's service container) sets

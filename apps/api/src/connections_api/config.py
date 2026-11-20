@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     supabase_anon_key: SecretStr = Field(validation_alias="SUPABASE_ANON_KEY")
     supabase_jwt_audience: str = Field(validation_alias="SUPABASE_JWT_AUDIENCE")
     supabase_jwt_issuer: str = Field(validation_alias="SUPABASE_JWT_ISSUER")
+    # Optional: only the HS256 verification path (local/test) reads it. Hosted Supabase signs
+    # with asymmetric keys resolved from JWKS, so an unset secret makes every HS256 token refused.
+    supabase_jwt_secret: SecretStr | None = Field(
+        default=None, validation_alias="SUPABASE_JWT_SECRET"
+    )
 
     database_url: SecretStr = Field(validation_alias="DATABASE_URL")
 

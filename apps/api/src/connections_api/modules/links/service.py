@@ -6,8 +6,9 @@ the `X-Contributor-Token` header; it is hashed here, first thing, and only the h
 database. The plaintext is never stored, logged or put in an exception.
 
 Admin functions take the connection `admin_tx` yields, so RLS scopes them to the admin's network.
-Contributor functions run in `user_tx({})`, i.e. as `anon`, which can only execute the three
-SECURITY DEFINER functions of 20261119000008_contributor_link_functions.sql. Every way a token can
+Contributor functions run in `contributor_tx()`, as the `contributor_api` role: the only role that
+can execute the three SECURITY DEFINER functions of 20261119000008_contributor_link_functions.sql,
+and one that holds nothing else. Every way a token can
 be wrong (missing, malformed, unknown, expired, revoked) takes the same path, hashing included,
 and ends in the same 404 `link_not_found`.
 """
@@ -26,7 +27,7 @@ import psycopg
 from psycopg import errors
 from psycopg.rows import dict_row
 
-from connections_api.db import user_tx
+from connections_api.db import contributor_tx
 from connections_api.deps import AdminContext
 from connections_api.errors import ConflictError, NotFoundError, ValidationFailed
 from connections_api.modules.links.schemas import (
@@ -41,7 +42,6 @@ from connections_api.modules.people.service import display_name
 
 type Conn = psycopg.Connection[Any]
 
-CONTRIBUTOR_TOKEN_HEADER = "X-Contributor-Token"
 TOKEN_BYTES = 32
 
 
@@ -139,14 +139,14 @@ def revoke_link(conn: Conn, link_id: UUID) -> LinkOut:
 
 @contextmanager
 def _contributor_tx() -> Iterator[Conn]:
-    """A transaction as `anon`, with the definer functions' errors mapped to API errors.
+    """A contributor_api transaction, with the definer functions' errors mapped to API errors.
 
     invalid_link (28000) is the 404. A payload the database refuses (classes 22 and 23) is a 422
     without details: the API validated the same rules already, and the database's message must
     not be echoed or logged, since it can quote what was sent.
     """
     try:
-        with user_tx({}) as conn:
+        with contributor_tx() as conn:
             yield conn
     except errors.InvalidAuthorizationSpecification:
         raise LinkNotFoundError() from None

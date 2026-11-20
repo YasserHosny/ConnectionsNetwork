@@ -2,9 +2,9 @@
 
 Admin endpoints need the admin (current_admin) and run under RLS (admin_tx). Contributor
 endpoints carry no Authorization header: the link token travels in X-Contributor-Token, they are
-rate limited, and they open their own `anon` transaction only once the limits have passed. The
-header is read as plain optional text, so a missing or malformed token is never a 422: it takes
-the same path as an unknown one, to the same 404.
+rate limited, and they open their own `contributor_api` transaction only once the limits have
+passed. The header is read as plain optional text, so a missing or malformed token is never a
+422: it takes the same path as an unknown one, to the same 404.
 
 No `from __future__ import annotations` here: SlowAPI wraps the contributor endpoints, and
 FastAPI would then resolve their string annotations in SlowAPI's module, where none of these
@@ -30,14 +30,14 @@ from connections_api.modules.links.schemas import (
     LinkOut,
 )
 from connections_api.modules.people.schemas import TagKind
-from connections_api.shared.rate_limit import contributor_rate_limits
+from connections_api.shared.rate_limit import CONTRIBUTOR_TOKEN_HEADER, contributor_rate_limits
 
 router = APIRouter(tags=["links"])
 
 Admin = Annotated[AdminContext, Depends(current_admin)]
 Tx = Annotated[psycopg.Connection[Any], Depends(admin_tx)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
-ContributorToken = Annotated[str | None, Header(alias=service.CONTRIBUTOR_TOKEN_HEADER)]
+ContributorToken = Annotated[str | None, Header(alias=CONTRIBUTOR_TOKEN_HEADER)]
 
 
 # -- admin --------------------------------------------------------------------------------------

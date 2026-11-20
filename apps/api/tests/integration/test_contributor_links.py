@@ -17,7 +17,8 @@ import json
 import logging
 import os
 import secrets
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
@@ -35,9 +36,11 @@ from integration.helpers import (
     token_for,
 )
 from psycopg import errors
+from starlette.requests import Request
 
 from connections_api import db
 from connections_api.main import create_app
+from connections_api.shared.rate_limit import contributor_token_key
 
 DSN = os.environ.get("TEST_DATABASE_URL", "")
 WEB_PUBLIC_URL = "http://localhost:4200"  # conftest's WEB_PUBLIC_URL
@@ -498,14 +501,40 @@ def test_renew_and_revoke_unknown_link_404(admin: TestClient) -> None:
     assert admin.post(f"/api/v1/links/{uuid4()}/revoke").status_code == 404
 
 
-# -- anon reaches nothing but the three functions ----------------------------------------------
+# -- only contributor_api reaches the three functions, and nothing else ---------------------------
+
+CONTRIBUTOR_FUNCTIONS = [
+    ("public.contributor_link_info(bytea)", "select * from public.contributor_link_info(%s)"),
+    (
+        "public.contribute_person(bytea, jsonb)",
+        "select public.contribute_person(%s, '{}'::jsonb)",
+    ),
+    (
+        "public.contributor_tag_suggest(bytea, text, text)",
+        "select * from public.contributor_tag_suggest(%s, 'skill', 'x')",
+    ),
+]
+
+
+type OpenTx = Callable[[], AbstractContextManager[psycopg.Connection[Any]]]
+
+
+def as_contributor_api() -> AbstractContextManager[psycopg.Connection[Any]]:
+    return db.contributor_tx(dsn=DSN)
+
+
+def as_anon() -> AbstractContextManager[psycopg.Connection[Any]]:
+    return db.user_tx({}, dsn=DSN)
 
 
 @pytest.mark.parametrize("table", ["person", "contact_value", "contributor_link", "tag"])
-def test_anon_cannot_select_tables(table: str) -> None:
+@pytest.mark.parametrize(
+    ("open_tx", "role"), [(as_anon, "anon"), (as_contributor_api, "contributor_api")]
+)
+def test_anon_cannot_select_tables(table: str, open_tx: OpenTx, role: str) -> None:
     with pytest.raises(errors.InsufficientPrivilege):
-        with db.user_tx({}, dsn=DSN) as tx:
-            assert tx.execute("select current_user").fetchone() == ("anon",)
+        with open_tx() as tx:
+            assert tx.execute("select current_user").fetchone() == (role,)
             tx.execute(f"select count(*) from public.{table}")  # noqa: S608
 
 
@@ -518,32 +547,64 @@ def test_anon_cannot_select_tables(table: str) -> None:
         ("select * from public.suggest_tags(%s, 'skill', 'x')", (uuid4(),)),
     ],
 )
-def test_anon_cannot_write_or_call_internal_functions(sql: str, params: tuple[object]) -> None:
+@pytest.mark.parametrize("open_tx", [as_anon, as_contributor_api])
+def test_no_session_roles_cannot_write_or_call_internal_functions(
+    sql: str,
+    params: tuple[object],
+    open_tx: OpenTx,
+) -> None:
     with pytest.raises(errors.InsufficientPrivilege):
-        with db.user_tx({}, dsn=DSN) as tx:
+        with open_tx() as tx:
             tx.execute(sql, params)
 
 
-@pytest.mark.parametrize(
-    "signature",
-    [
-        "public.contributor_link_info(bytea)",
-        "public.contribute_person(bytea, jsonb)",
-        "public.contributor_tag_suggest(bytea, text, text)",
-    ],
-)
-def test_contributor_functions_are_anon_only_definers(
-    signature: str, conn: psycopg.Connection[Any]
+@pytest.mark.parametrize("role", ["anon", "authenticated", "service_role"])
+@pytest.mark.parametrize(("_signature", "sql"), CONTRIBUTOR_FUNCTIONS)
+def test_supabase_roles_cannot_execute_contributor_functions(
+    role: str, _signature: str, sql: str
+) -> None:
+    """PostgREST serves public functions to anon (the anon key is public) and to signed-in users:
+    a direct /rest/v1/rpc call must not get around the API's rate limits."""
+    with db.connect(DSN) as connection, connection.transaction():
+        connection.execute(f"set local role {role}")
+        with pytest.raises(errors.InsufficientPrivilege):
+            connection.execute(sql, (sha256("x"),))
+
+
+@pytest.mark.parametrize(("signature", "_sql"), CONTRIBUTOR_FUNCTIONS)
+def test_contributor_functions_are_contributor_api_only_definers(
+    signature: str, _sql: str, conn: psycopg.Connection[Any]
 ) -> None:
     row = conn.execute(
         "select p.prosecdef, p.proconfig,"
+        " has_function_privilege('contributor_api', p.oid, 'execute'),"
         " has_function_privilege('anon', p.oid, 'execute'),"
         " has_function_privilege('authenticated', p.oid, 'execute'),"
-        " has_function_privilege('service_role', p.oid, 'execute')"
+        " has_function_privilege('service_role', p.oid, 'execute'),"
+        " exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0)"  # PUBLIC
         " from pg_proc p where p.oid = %s::regprocedure",
         (signature,),
     ).fetchone()
-    assert row == (True, ['search_path=""'], True, False, False)
+    assert row == (True, ['search_path=""'], True, False, False, False, False)
+
+
+def test_contributor_api_role_is_narrow(conn: psycopg.Connection[Any]) -> None:
+    role = conn.execute(
+        "select rolcanlogin, rolsuper, rolbypassrls, rolinherit from pg_roles"
+        " where rolname = 'contributor_api'"
+    ).fetchone()
+    assert role == (False, False, False, True)
+    # The API's login role may switch to it; nothing else (PostgREST's authenticator above all).
+    members = conn.execute(
+        "select m.member::regrole::text from pg_auth_members m"
+        " where m.roleid = 'contributor_api'::regrole"
+    ).fetchall()
+    assert members == [("postgres",)]
+    # No privilege on any table.
+    assert conn.execute(
+        "select count(*) from information_schema.role_table_grants"
+        " where grantee = 'contributor_api'"
+    ).fetchone() == (0,)
 
 
 # -- contribute_person validates its payload itself ---------------------------------------------
@@ -560,7 +621,7 @@ def link_hash(conn: psycopg.Connection[Any], network: NetworkFixture, contributo
 
 
 def call_contribute_person(token_hash: bytes, payload: object) -> UUID:
-    with db.user_tx({}, dsn=DSN) as tx:
+    with db.contributor_tx(dsn=DSN) as tx:
         row = tx.execute(
             "select public.contribute_person(%s, %s::jsonb)", (token_hash, json.dumps(payload))
         ).fetchone()
@@ -716,8 +777,31 @@ def test_contribute_does_not_log_token(
     anon.get("/api/v1/contribute/info", headers={TOKEN_HEADER: token})
 
     assert any("exceeded" in record.getMessage() for record in caplog.records)
-    assert token not in caplog.text
-    for record in caplog.records:
-        assert token not in record.getMessage()
-        assert token not in repr(record.__dict__)
-    assert token not in capsys.readouterr().out
+    # Neither the token nor its stored hash (the functions' credential) reaches a log line.
+    out = capsys.readouterr().out
+    for secret in (token, sha256(token).hex()):
+        assert secret not in caplog.text
+        for record in caplog.records:
+            assert secret not in record.getMessage()
+            assert secret not in repr(record.__dict__)
+        assert secret not in out
+
+
+def test_rate_limit_key_is_not_the_stored_hash(
+    admin: TestClient, contributor: UUID, conn: psycopg.Connection[Any]
+) -> None:
+    link = create_link(admin, contributor)
+    token = token_of(link["url"])
+    stored = conn.execute(
+        "select token_hash from contributor_link where id = %s", (link["link_id"],)
+    ).fetchone()
+    assert stored is not None
+    request = Request(
+        {"type": "http", "headers": [(TOKEN_HEADER.lower().encode(), token.encode())]}
+    )
+
+    key = contributor_token_key(request)
+
+    assert key == contributor_token_key(request)  # stable: one bucket per link
+    assert bytes(stored[0]).hex() not in key
+    assert token not in key

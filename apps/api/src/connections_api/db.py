@@ -10,7 +10,8 @@ is called anywhere else in this package.
 
 Request paths run inside ``user_tx``: a transaction switched to the ``authenticated`` (or
 ``anon``) role with the verified JWT claims set, so Postgres RLS decides what the request may
-read and write. ``service_role`` is never used on a request path.
+read and write. Contributor-link requests (no session) run inside ``contributor_tx`` instead,
+as the narrow ``contributor_api`` role. ``service_role`` is never used on a request path.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import psycopg
+from psycopg import sql
 
 
 def connect(dsn: str | None = None, **kwargs: object) -> psycopg.Connection[Any]:
@@ -41,16 +43,36 @@ def connect(dsn: str | None = None, **kwargs: object) -> psycopg.Connection[Any]
 def user_tx(claims: Mapping[str, str], dsn: str | None = None) -> Iterator[psycopg.Connection[Any]]:
     """A transaction that runs as the request's user, under row-level security.
 
-    ``set local role`` switches to ``authenticated``, or to ``anon`` when there are no claims
-    (a contributor-link request has no session), and ``request.jwt.claims`` carries the claims
-    the RLS accessors read (current_network_id() and friends). Both are transaction-local, so
-    they end with the transaction and never leak to the next user of a pooled backend.
-    Commits when the block exits normally, rolls back when it raises.
+    ``set local role`` switches to ``authenticated``, or to ``anon`` when there are no claims,
+    and ``request.jwt.claims`` carries the claims the RLS accessors read (current_network_id()
+    and friends). Both are transaction-local, so they end with the transaction and never leak to
+    the next user of a pooled backend. Commits when the block exits normally, rolls back when it
+    raises.
 
     dsn defaults to the configured DATABASE_URL (tests pass TEST_DATABASE_URL).
     """
+    with _role_tx("authenticated" if claims else "anon", claims, dsn) as conn:
+        yield conn
+
+
+@contextmanager
+def contributor_tx(dsn: str | None = None) -> Iterator[psycopg.Connection[Any]]:
+    """A transaction for a contributor-link request (no session, no claims).
+
+    Runs as ``contributor_api``, the one role that may execute the contributor-link functions
+    (20261119000008) and that holds nothing else. Not ``anon``: PostgREST serves ``anon`` to
+    anyone holding the public anon key, and a direct RPC call would skip the API's rate limits.
+    """
+    with _role_tx("contributor_api", {}, dsn) as conn:
+        yield conn
+
+
+@contextmanager
+def _role_tx(
+    role: str, claims: Mapping[str, str], dsn: str | None
+) -> Iterator[psycopg.Connection[Any]]:
     with connect(dsn) as conn, conn.transaction():
-        conn.execute("set local role authenticated" if claims else "set local role anon")
+        conn.execute(sql.SQL("set local role {}").format(sql.Identifier(role)))
         conn.execute(
             "select set_config('request.jwt.claims', %s, true)", (json.dumps(dict(claims)),)
         )

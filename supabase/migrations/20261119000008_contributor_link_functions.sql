@@ -1,15 +1,22 @@
 -- Contributor links (spec 8.2, 11.4; ADR docs/adr/0001-contributor-link-exception.md).
 --
--- A link contributor has no Supabase session and no JWT, so RLS cannot identify them: their
--- requests run as `anon`, which holds no privilege on any table (20261119000003). They reach data
--- only through the three functions below, each of which
+-- A link contributor has no Supabase session and no JWT, so RLS cannot identify them. Their
+-- requests reach data only through the three functions below, each of which
 --   * takes the sha256 of the link token (the API hashes it; the plaintext never reaches the
 --     database, its logs or pg_stat_statements),
 --   * validates the link first: it exists, is not revoked and has not expired (expires_at > now()),
---   * uses the LINK's network_id and person_id for everything; anon has no claims to read.
+--   * uses the LINK's network_id and person_id for everything; the caller has no claims to read.
 -- An unknown, expired or revoked link is one case, never told apart: contributor_link_info
 -- returns no row, the other two raise `invalid_link` (SQLSTATE 28000,
 -- invalid_authorization_specification), which the API answers with the same 404.
+--
+-- Who may call them: only `contributor_api` (ruling R11), a NOLOGIN role with no table privilege
+-- that the API's login role switches to (connections_api.db.contributor_tx). NOT anon: PostgREST
+-- exposes every public function to anon, and the anon key ships in the web app, so a grant to anon
+-- would let anyone call /rest/v1/rpc/contribute_person directly, past the API's rate limits and
+-- its own validation. Execute is revoked from public, anon, authenticated and service_role (hosted
+-- default privileges grant new functions to the Supabase roles) and granted to contributor_api
+-- alone. PostgREST's `authenticator` is never made a member of contributor_api.
 --
 -- SECURITY DEFINER: the functions run as their owner, which bypasses RLS (the superuser locally
 -- and in CI, `postgres` on hosted; ruling R4). That is why they are narrow: contribute_person
@@ -18,8 +25,22 @@
 -- spellings, against skill fragmentation). None returns any other row.
 --
 -- search_path is pinned empty and every name is schema-qualified, so a caller cannot shadow a
--- table, type or function. Execute is revoked from public, anon and authenticated (hosted default
--- privileges grant new functions to both) and granted back to anon alone.
+-- table, type or function.
+
+-- ---------------------------------------------------------------------------
+-- contributor_api: the database role of a contributor-link request. Idempotent, like the
+-- stand-ins: it is cluster-wide, so it can outlive a dropped database.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  create role contributor_api nologin;
+exception when duplicate_object then null;
+end
+$$;
+
+grant usage on schema public to contributor_api;
+-- The API's login role (postgres locally, in CI and on hosted) may `set role contributor_api`.
+grant contributor_api to current_user;
 
 -- ---------------------------------------------------------------------------
 -- suggest_tags: the one tag-autocomplete rule, shared by the admin's GET /tags (invoker rights,
@@ -85,10 +106,11 @@ as $$
 $$;
 
 comment on function public.contributor_link_info(bytea) is
-  'Contributor display name and expiry for a valid link token hash; no row otherwise. anon only.';
+  'Contributor display name and expiry for a valid link token hash; no row otherwise. contributor_api only.';
 
-revoke all on function public.contributor_link_info(bytea) from public, anon, authenticated;
-grant execute on function public.contributor_link_info(bytea) to anon;
+revoke all on function public.contributor_link_info(bytea)
+  from public, anon, authenticated, service_role;
+grant execute on function public.contributor_link_info(bytea) to contributor_api;
 
 -- ---------------------------------------------------------------------------
 -- contributor_tag_suggest: tag autocomplete for a contributor, in the link's network.
@@ -120,11 +142,12 @@ end
 $$;
 
 comment on function public.contributor_tag_suggest(bytea, text, text) is
-  'Tag suggestions in a valid link''s network; raises invalid_link (28000) otherwise. anon only.';
+  'Tag suggestions in a valid link''s network; raises invalid_link (28000) otherwise.
+   contributor_api only.';
 
 revoke all on function public.contributor_tag_suggest(bytea, text, text)
-  from public, anon, authenticated;
-grant execute on function public.contributor_tag_suggest(bytea, text, text) to anon;
+  from public, anon, authenticated, service_role;
+grant execute on function public.contributor_tag_suggest(bytea, text, text) to contributor_api;
 
 -- ---------------------------------------------------------------------------
 -- contribute_person: insert one person through a valid link, connected to the link's person.
@@ -352,7 +375,9 @@ $$;
 
 comment on function public.contribute_person(bytea, jsonb) is
   'Insert one person (and their tags, links, contacts, connection) through a valid link token
-   hash; raises invalid_link (28000) otherwise, 22023/22P02 on an invalid payload. anon only.';
+   hash; raises invalid_link (28000) otherwise, 22023/22P02 on an invalid payload.
+   contributor_api only.';
 
-revoke all on function public.contribute_person(bytea, jsonb) from public, anon, authenticated;
-grant execute on function public.contribute_person(bytea, jsonb) to anon;
+revoke all on function public.contribute_person(bytea, jsonb)
+  from public, anon, authenticated, service_role;
+grant execute on function public.contribute_person(bytea, jsonb) to contributor_api;

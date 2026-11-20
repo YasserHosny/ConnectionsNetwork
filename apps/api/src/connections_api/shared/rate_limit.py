@@ -4,7 +4,7 @@ Only the contributor endpoints are limited (spec 11.4): they need no account, so
 what stands between a leaked or guessed link and a flood of submissions. Each contributor
 endpoint has two budgets, both checked on every request:
 
-  * 30/minute per link: keyed by the sha256 of the X-Contributor-Token header.
+  * 30/minute per link: keyed by sha256(b"ratelimit:" + X-Contributor-Token).
   * 60/minute per client address: keyed by the remote IP, so rotating made-up tokens does not
     escape the limit.
 
@@ -12,8 +12,9 @@ The budgets are per endpoint (`key_style="endpoint"`): tag autocomplete while ty
 up the budget for submitting people. A request with no or a bad token still spends both budgets,
 and is then answered with the same 404 as any other bad token.
 
-SlowAPI logs the bucket key when a limit is exceeded, so the token key is the hash, never the
-token itself.
+SlowAPI logs the bucket key when a limit is exceeded. The per-link key is therefore a hash of
+the token, and a domain-separated one: plain sha256(token) is what contributor_link.token_hash
+stores, which the contributor functions accept, so it must not reach a log line either.
 
 Behind a reverse proxy the remote address is the proxy's unless uvicorn trusts its forwarded
 headers (`--proxy-headers --forwarded-allow-ips`); the deployment must set that, or every
@@ -22,6 +23,7 @@ contributor shares one per-IP budget.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from typing import Any
 
@@ -32,9 +34,11 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from connections_api.errors import ErrorEnvelope
-from connections_api.modules.links.service import CONTRIBUTOR_TOKEN_HEADER, hash_token
 from connections_api.shared.logging import get_trace_id
 
+# The header a contributor request carries its link token in (the token is in the URL fragment,
+# so it never reaches a server in a URL).
+CONTRIBUTOR_TOKEN_HEADER = "X-Contributor-Token"
 CONTRIBUTOR_TOKEN_LIMIT = "30/minute"
 CONTRIBUTOR_IP_LIMIT = "60/minute"
 
@@ -42,8 +46,9 @@ limiter = Limiter(key_func=get_remote_address, key_style="endpoint")
 
 
 def contributor_token_key(request: Request) -> str:
-    """The rate-limit bucket of the link a request names: the token's hash, hex-encoded."""
-    return "link:" + hash_token(request.headers.get(CONTRIBUTOR_TOKEN_HEADER, "")).hex()
+    """The rate-limit bucket of the link a request names. Never equal to the stored token_hash."""
+    token = request.headers.get(CONTRIBUTOR_TOKEN_HEADER, "")
+    return "link:" + hashlib.sha256(b"ratelimit:" + token.encode()).hexdigest()
 
 
 def contributor_rate_limits[F: Callable[..., Any]](endpoint: F) -> F:

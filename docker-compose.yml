@@ -1,0 +1,38 @@
+# The two images the deploy builds, for running the stack locally: api (FastAPI) and web (Angular
+# behind Nginx, which also proxies /api to the api). There is no database service: the api needs
+# a Postgres reachable through DATABASE_URL, with a Supabase project (hosted, or local via
+# `supabase start`) behind SUPABASE_URL. Configuration comes from .env (copy .env.example).
+#
+#   docker compose up --build        # http://localhost:4200
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    container_name: connections-api
+    env_file:
+      - .env
+    environment:
+      # Nginx is a different container here, so its address is on the compose network, not
+      # localhost (the image default). Never "*".
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    container_name: connections-web
+    environment:
+      BACKEND_HOST: api
+      # Written to runtime-config.json and the CSP at container start (see infra/nginx/entrypoint.sh).
+      SUPABASE_URL: ${SUPABASE_URL:?set SUPABASE_URL in .env}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?set SUPABASE_ANON_KEY in .env}
+    ports:
+      - "4200:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

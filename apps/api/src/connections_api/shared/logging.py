@@ -22,6 +22,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 __all__ = [
+    "AccessLogFilter",
     "JsonFormatter",
     "RedactionFilter",
     "TraceIdMiddleware",
@@ -140,6 +141,25 @@ class RedactionFilter(logging.Filter):
         return True
 
 
+class AccessLogFilter(logging.Filter):
+    """Reduces a uvicorn access line to ``<method> <path> <status>``.
+
+    uvicorn logs the client address and the request target *with* its query string, and search
+    text and tag queries travel there. Keeping only method, path and status mirrors the Nginx
+    access log format (``$request_method $uri $status``). A record that does not have uvicorn's
+    five access arguments is left untouched.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) == 5:
+            _client, method, full_path, _http_version, status_code = args
+            path = str(full_path).split("?", 1)[0]
+            record.msg = "%s %s %s"
+            record.args = (method, path, status_code)
+        return True
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, object] = {
@@ -175,6 +195,12 @@ def configure_logging(level: str) -> None:
         uvicorn_logger = logging.getLogger(name)
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
+    # A logger-level filter runs before the record propagates to the handler's redaction filter.
+    # create_app() calls this on every build, so replace rather than stack.
+    access_logger = logging.getLogger("uvicorn.access")
+    for existing in [f for f in access_logger.filters if isinstance(f, AccessLogFilter)]:
+        access_logger.removeFilter(existing)
+    access_logger.addFilter(AccessLogFilter())
     logging.captureWarnings(True)
 
 

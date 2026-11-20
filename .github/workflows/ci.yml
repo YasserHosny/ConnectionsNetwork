@@ -54,8 +54,8 @@ jobs:
       - name: Lint backend
         run: uv run --project apps/api ruff check apps/api
       - name: Lint workspace
-        # Runs every package's `lint` task through turbo. Nothing to run until the web app
-        # arrives (Task 12), at which point this step starts covering it.
+        # Runs every package's `lint` task through turbo: for apps/web that is ESLint plus the
+        # i18n key, logical-CSS and PWA checks (apps/web/scripts/check-*.mjs).
         run: pnpm lint
 
   backend-tests:
@@ -97,3 +97,31 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: uv run --project apps/api pytest
+
+  web-unit-tests:
+    name: Web unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          # apps/web keeps its own lockfile, as in ProcurePilot; the lint job installs the whole
+          # workspace from the root one.
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: Install web dependencies
+        working-directory: apps/web
+        # --ignore-workspace makes pnpm skip the root pnpm-workspace.yaml, which is also where
+        # its `allowBuilds` list lives, so the strict build-script check is relaxed here instead
+        # (esbuild, lmdb and the others only fetch prebuilt binaries).
+        run: pnpm install --ignore-workspace --frozen-lockfile --config.strict-dep-builds=false
+      - name: Unit tests
+        # Includes the en/ar catalogue parity spec. Karma drives the Chrome the runner provides.
+        working-directory: apps/web
+        run: pnpm exec ng test --watch=false --browsers=ChromeHeadless
+      - name: Production build
+        # Also generates the service worker from ngsw-config.json and enforces the bundle budgets.
+        working-directory: apps/web
+        run: pnpm exec ng build

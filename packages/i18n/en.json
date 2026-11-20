@@ -1,0 +1,75 @@
+{
+  "common": {
+    "appName": "Connections",
+    "retry": "Try again",
+    "loading": "Loading…",
+    "comingSoon": "This page is coming soon.",
+    "language": {
+      "label": "Language",
+      "ar": "العربية",
+      "en": "English",
+      "switchToAr": "التبديل إلى العربية",
+      "switchToEn": "Switch to English"
+    }
+  },
+  "shell": {
+    "skipToContent": "Skip to content",
+    "signOut": "Sign out",
+    "navLabel": "Main navigation",
+    "nav": {
+      "search": "Search",
+      "add": "Add",
+      "review": "Review",
+      "links": "Links",
+      "export": "Export"
+    }
+  },
+  "pages": {
+    "search": { "title": "Search" },
+    "add": { "title": "Add person" },
+    "review": { "title": "Review" },
+    "links": { "title": "Contributor links" },
+    "export": { "title": "Export" }
+  },
+  "contribute": {
+    "title": "Add someone you know"
+  },
+  "auth": {
+    "login": {
+      "title": "Sign in",
+      "intro": "Sign in to your private network.",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "errors": {
+        "required": "Enter your email and password.",
+        "invalidCredentials": "The email or password is wrong.",
+        "notConfigured": "The app is not configured: the sign-in service address is missing.",
+        "generic": "Sign-in failed. Try again."
+      }
+    },
+    "mfa": {
+      "loading": "Checking your account…",
+      "enroll": {
+        "title": "Set up two-step verification",
+        "intro": "Scan this QR code with an authenticator app, then enter the 6-digit code it shows.",
+        "qrAlt": "QR code for the authenticator app",
+        "secretLabel": "Can't scan? Enter this key in your app:",
+        "submit": "Confirm and continue"
+      },
+      "verify": {
+        "title": "Two-step verification",
+        "intro": "Enter the 6-digit code from your authenticator app.",
+        "submit": "Verify"
+      },
+      "code": "6-digit code",
+      "verifying": "Verifying…",
+      "errors": {
+        "required": "Enter the 6-digit code.",
+        "invalidCode": "That code is wrong or has expired. Try the latest code.",
+        "generic": "Verification failed. Try again."
+      }
+    }
+  }
+}

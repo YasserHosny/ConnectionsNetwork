@@ -1,0 +1,53 @@
+@use '@angular/material' as mat;
+
+html {
+  color-scheme: light;
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$azure-palette,
+        tertiary: mat.$cyan-palette,
+        theme-type: light,
+      ),
+      // Readex Pro covers Latin and Arabic (loaded in index.html); the rest are system fonts that
+      // also cover Arabic, so text stays readable while it loads or if Google Fonts is blocked.
+      typography: (
+        plain-family: ('Readex Pro', 'Segoe UI', Tahoma, 'Noto Sans Arabic', sans-serif),
+        brand-family: ('Readex Pro', 'Segoe UI', Tahoma, 'Noto Sans Arabic', sans-serif),
+        bold-weight: 600,
+      ),
+      density: 0,
+    )
+  );
+}
+
+html,
+body {
+  margin: 0;
+  min-block-size: 100%;
+}
+
+body {
+  background: var(--mat-sys-background);
+  color: var(--mat-sys-on-background);
+  font-family: var(--mat-sys-body-large-font, sans-serif);
+}
+
+h1 {
+  font: var(--mat-sys-headline-small);
+}
+
+// Material Symbols Outlined (index.html), set as the default icon font for <mat-icon>.
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}

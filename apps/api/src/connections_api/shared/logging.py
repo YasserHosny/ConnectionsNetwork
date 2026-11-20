@@ -60,9 +60,12 @@ _SECRET_PATTERN = re.compile(
     r"((?:password|token|secret|apikey|api[_-]?key|authorization)=)[^\s&]+"
 )
 _EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-# A run of 8 or more digits, also when the digits are grouped with single spaces or hyphens
-# ("010 1234 5678", "+20-10-1234-5678"): phone numbers are rarely written as one block.
-_DIGITS_PATTERN = re.compile(r"\d(?:[ -]?\d){7,}")
+# A run of 8 or more digits (any script: \d is Unicode, so Arabic-Indic digits count), also when
+# the digits are grouped by separators: spaces, hyphens, dots and parentheses, up to three of
+# them in a row ("010 1234 5678", "+20-10-1234-5678", "010.1234.5678", "(010) 1234 5678",
+# "010 - 1234 - 5678"). Phone numbers are rarely written as one block. An opening parenthesis
+# right before the first digit is part of the match, so no fragment of the number survives.
+_DIGITS_PATTERN = re.compile(r"\(?\d(?:[ .()-]{0,3}\d){7,}\)?")
 
 _RESERVED_LOG_RECORD_KEYS = frozenset(
     {

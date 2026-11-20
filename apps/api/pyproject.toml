@@ -20,6 +20,8 @@ dependencies = [
     # jwks.py fetches the signing keys at runtime.
     "httpx==0.28.1",
     "slowapi==0.1.9",
+    # Direct, not transitive: scripts/bootstrap_admin.py imports it (load_dotenv).
+    "python-dotenv>=1.0,<2",
 ]
 
 [dependency-groups]

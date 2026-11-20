@@ -506,7 +506,7 @@ def test_renew_and_revoke_unknown_link_404(admin: TestClient) -> None:
 CONTRIBUTOR_FUNCTIONS = [
     ("public.contributor_link_info(bytea)", "select * from public.contributor_link_info(%s)"),
     (
-        "public.contribute_person(bytea, jsonb)",
+        "public.contribute_person(bytea, jsonb, text)",
         "select public.contribute_person(%s, '{}'::jsonb)",
     ),
     (
@@ -668,6 +668,18 @@ def test_contribute_person_raises_invalid_link(link_hash: bytes) -> None:
         {"person": {"name_latin": "x", "industries": [5]}, "strength": "weak"},
         {"person": {"name_latin": "x", "social_links": [{"kind": "myspace", "url": "u"}]},
          "strength": "weak"},
+        {"person": {"name_latin": "x", "social_links": [{"kind": "website",
+                                                          "url": "javascript:alert(1)"}]},
+         "strength": "weak"},
+        {"person": {"name_latin": "x", "social_links": [{"kind": "website",
+                                                          "url": "data:text/html,<b>x</b>"}]},
+         "strength": "weak"},
+        {"person": {"name_latin": "x", "social_links": [{"kind": "website",
+                                                          "url": "ftp://files.example.com"}]},
+         "strength": "weak"},
+        {"person": {"name_latin": "x", "social_links": [{"kind": "website",
+                                                          "url": "//evil.example.com"}]},
+         "strength": "weak"},
         {"person": {"name_latin": "x", "contacts": [{"kind": "fax", "value": "1"}]},
          "strength": "weak"},
         {"person": {"name_latin": "x", "contacts": [{"kind": "email", "value": "a@b.c"}] * 21},
@@ -806,3 +818,128 @@ def test_rate_limit_key_is_not_the_stored_hash(
     assert key == contributor_token_key(request)  # stable: one bucket per link
     assert bytes(stored[0]).hex() not in key
     assert token not in key
+
+
+# -- Idempotency-Key on contribute (spec 11.1, ruling R18) ---------------------------------------
+
+
+def contribute_with_key(anon: TestClient, token: str, key: str | None) -> Response:
+    return anon.post(
+        "/api/v1/contribute/people",
+        json={"person": person_body(name_latin="Retried"), "strength": "normal"},
+        headers={TOKEN_HEADER: token, **({} if key is None else {"Idempotency-Key": key})},
+    )
+
+
+def test_contribute_replayed_with_the_same_key_creates_one_person(
+    admin: TestClient, anon: TestClient, contributor: UUID, conn: psycopg.Connection[Any]
+) -> None:
+    token = token_of(create_link(admin, contributor)["url"])
+    key = str(uuid4())
+
+    first = contribute_with_key(anon, token, key)
+    again = contribute_with_key(anon, token, key)
+
+    assert first.status_code == 201, first.text
+    assert again.status_code == 201, again.text
+    assert again.json() == first.json()
+    assert count(conn, "select count(*) from person where name_latin = 'Retried'") == 1
+    assert count(conn, "select count(*) from connection where %s in (person_a, person_b)",
+                 UUID(first.json()["person_id"])) == 1  # fmt: skip
+
+
+def test_contribute_with_different_keys_creates_two_people(
+    admin: TestClient, anon: TestClient, contributor: UUID, conn: psycopg.Connection[Any]
+) -> None:
+    token = token_of(create_link(admin, contributor)["url"])
+
+    first = contribute_with_key(anon, token, str(uuid4()))
+    second = contribute_with_key(anon, token, str(uuid4()))
+
+    assert first.json()["person_id"] != second.json()["person_id"]
+    assert count(conn, "select count(*) from person where name_latin = 'Retried'") == 2
+
+
+def test_contribute_keys_are_per_link(
+    admin: TestClient, anon: TestClient, contributor: UUID, conn: psycopg.Connection[Any]
+) -> None:
+    key = str(uuid4())
+    one = token_of(create_link(admin, contributor)["url"])
+    two = token_of(create_link(admin, contributor)["url"])
+
+    first = contribute_with_key(anon, one, key)
+    second = contribute_with_key(anon, two, key)
+
+    assert first.json()["person_id"] != second.json()["person_id"]
+
+
+def test_contribute_rejects_a_malformed_key(
+    admin: TestClient, anon: TestClient, contributor: UUID, conn: psycopg.Connection[Any]
+) -> None:
+    token = token_of(create_link(admin, contributor)["url"])
+
+    response = contribute_with_key(anon, token, "not a valid key")
+
+    assert response.status_code == 422, response.text
+    assert count(conn, "select count(*) from person where name_latin = 'Retried'") == 0
+
+
+def test_contribute_person_function_replays_a_key(link_hash: bytes) -> None:
+    payload = {"person": {"name_latin": "Direct"}, "strength": "weak"}
+    with db.contributor_tx(dsn=DSN) as tx:
+        first = tx.execute(
+            "select public.contribute_person(%s, %s::jsonb, 'k-1')",
+            (link_hash, json.dumps(payload)),
+        ).fetchone()
+        again = tx.execute(
+            "select public.contribute_person(%s, %s::jsonb, 'k-1')",
+            (link_hash, json.dumps(payload)),
+        ).fetchone()
+    assert first == again
+
+
+def test_contribute_person_function_refuses_a_malformed_key(link_hash: bytes) -> None:
+    payload = {"person": {"name_latin": "Direct"}, "strength": "weak"}
+    with pytest.raises(errors.InvalidParameterValue), db.contributor_tx(dsn=DSN) as tx:
+        tx.execute(
+            "select public.contribute_person(%s, %s::jsonb, 'bad key')",
+            (link_hash, json.dumps(payload)),
+        )
+
+
+def test_contribute_person_prefixes_a_bare_social_link_with_https(
+    link_hash: bytes, conn: psycopg.Connection[Any]
+) -> None:
+    person_id = call_contribute_person(
+        link_hash,
+        {
+            "person": {
+                "name_latin": "Linked",
+                "social_links": [
+                    {"kind": "linkedin", "url": "linkedin.com/in/linked"},
+                    {"kind": "github", "url": "HTTP://github.com/linked"},
+                ],
+            },
+            "strength": "weak",
+        },
+    )
+
+    urls = [
+        r[0]
+        for r in conn.execute(
+            "select url from social_link where person_id = %s order by url", (person_id,)
+        )
+    ]
+    assert urls == ["HTTP://github.com/linked", "https://linkedin.com/in/linked"]
+
+
+def test_contribute_endpoint_rejects_a_script_link(
+    admin: TestClient, anon: TestClient, contributor: UUID
+) -> None:
+    token = token_of(create_link(admin, contributor)["url"])
+
+    response = contribute(
+        anon, token, social_links=[{"kind": "website", "url": "javascript:alert(1)"}]
+    )
+
+    assert response.status_code == 422, response.text

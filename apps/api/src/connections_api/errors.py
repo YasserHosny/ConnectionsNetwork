@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
+import psycopg
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -109,10 +110,19 @@ async def http_error_handler(_request: Request, exc: Exception) -> JSONResponse:
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     # Method and path only: the query string and body can carry contact values or tokens.
-    logger.exception(
-        "Unhandled request exception",
-        extra={"path": request.url.path, "method": request.method},
-    )
+    extra = {"path": request.url.path, "method": request.method}
+    if isinstance(exc, psycopg.Error):
+        # A database error's text quotes the values it refused (`DETAIL: Key (...)=(...)`):
+        # names and free text that no pattern-based redaction can recognise. Log the class and
+        # the SQLSTATE only, and no traceback (its last line repeats the text).
+        logger.error(
+            "Unhandled request exception: %s (sqlstate %s)",
+            type(exc).__name__,
+            exc.sqlstate,
+            extra=extra,
+        )
+    else:
+        logger.exception("Unhandled request exception", extra=extra)
     return _error_response(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         code="internal_error",

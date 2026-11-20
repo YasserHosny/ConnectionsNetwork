@@ -20,9 +20,10 @@ psql_in_container() {
 }
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
+# Published on the loopback interface only: the database has a well-known password.
 docker run -d --name "$NAME" \
   -e POSTGRES_PASSWORD=postgres \
-  -p "$PORT:5432" \
+  -p "127.0.0.1:$PORT:5432" \
   postgres:17 >/dev/null
 
 # The image first runs a temporary server on a unix socket only, then restarts. Checking over

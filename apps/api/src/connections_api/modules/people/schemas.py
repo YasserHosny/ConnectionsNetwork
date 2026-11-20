@@ -6,12 +6,19 @@ The enums are the value sets of the global constraints and of the database enums
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, StringConstraints, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 
 class Strength(StrEnum):
@@ -75,7 +82,27 @@ class TagKind(StrEnum):
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)]
 LongText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000)]
 Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-Url = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+# A social link is opened by the admin's browser, so it must be a web address: http(s) with a
+# host, or a bare host and path ("linkedin.com/in/x"), which is stored with https:// in front.
+# Every other scheme (javascript:, data:, mailto:, ftp:, scheme-relative //...) is refused. The
+# same rule is enforced again by the SQL function contribute_person.
+_HTTP_URL = re.compile(r"^https?://[^\s/?#]+", re.IGNORECASE)
+_BARE_URL = re.compile(r"^[^\s:/?#]+(?::[0-9]+)?(?:[/?#].*)?$")
+
+
+def _web_url(value: str) -> str:
+    if _HTTP_URL.match(value):
+        return value
+    if "://" not in value and _BARE_URL.match(value):
+        return f"https://{value}"
+    raise ValueError("a link must be a web address (http or https)")
+
+
+Url = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=500),
+    AfterValidator(_web_url),
+]
 ContactValue = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
 ]

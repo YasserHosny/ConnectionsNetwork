@@ -949,3 +949,139 @@ def test_edit_removes_every_duplicate_row_of_a_contact_value(
     assert count(conn, "select count(*) from contact_value where person_id = %s", pid) == len(
         contacts
     )
+
+
+# -- Idempotency-Key on create (spec 11.1, ruling R18) -------------------------------------------
+
+
+def post_new_person(
+    client: TestClient, network: NetworkFixture, key: str | None, name: str = "Retry Person"
+) -> Response:
+    return client.post(
+        "/api/v1/people",
+        json={
+            "person": person_body(name_latin=name),
+            "connect_to_person_id": str(network.admin_person_id),
+            "strength": "normal",
+        },
+        headers={} if key is None else {"Idempotency-Key": key},
+    )
+
+
+def test_create_replayed_with_the_same_key_creates_one_person(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    key = str(uuid4())
+
+    first = post_new_person(client, network, key)
+    again = post_new_person(client, network, key)
+
+    assert first.status_code == 201, first.text
+    assert again.status_code == 201, again.text
+    assert again.json() == first.json()
+    assert count(conn, "select count(*) from person where name_latin = 'Retry Person'") == 1
+    assert count(conn, "select count(*) from idempotency_key where key = %s", key) == 1
+
+
+def test_create_with_different_keys_creates_two_people(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    first = post_new_person(client, network, str(uuid4()))
+    second = post_new_person(client, network, "draft_2-retry")
+    without = post_new_person(client, network, None)
+
+    ids = {r.json()["person"]["id"] for r in (first, second, without)}
+    assert len(ids) == 3
+    assert count(conn, "select count(*) from person where name_latin = 'Retry Person'") == 3
+
+
+@pytest.mark.parametrize("key", ["", "has space", "x" * 129, "semi;colon", "dot.ted"])
+def test_create_rejects_a_malformed_key(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any], key: str
+) -> None:
+    response = post_new_person(client, network, key)
+
+    assert response.status_code == 422, response.text
+    assert count(conn, "select count(*) from person where name_latin = 'Retry Person'") == 0
+
+
+def test_create_key_older_than_seven_days_is_forgotten(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    key = str(uuid4())
+    first = post_new_person(client, network, key).json()
+    conn.execute(
+        "update idempotency_key set created_at = now() - interval '8 days' where key = %s", (key,)
+    )
+
+    again = post_new_person(client, network, key).json()
+
+    assert again["person"]["id"] != first["person"]["id"]
+    assert count(conn, "select count(*) from idempotency_key where key = %s", key) == 1
+
+
+def test_create_keys_are_per_network(
+    client: TestClient,
+    network: NetworkFixture,
+    other_network: NetworkFixture,
+    conn: psycopg.Connection[Any],
+) -> None:
+    key = str(uuid4())
+    other = TestClient(
+        create_app(), headers={"Authorization": f"Bearer {token_for(other_network.admin_claims)}"}
+    )
+
+    mine = post_new_person(client, network, key).json()
+    theirs = post_new_person(other, other_network, key).json()
+
+    assert mine["person"]["id"] != theirs["person"]["id"]
+
+
+# -- social link URLs are web addresses ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "JavaScript:alert(1)",
+        "data:text/html;base64,PGI+",
+        "vbscript:msgbox",
+        "mailto:someone@example.com",
+        "ftp://files.example.com/x",
+        "//evil.example.com/x",
+        "https://",
+        "http:/x.com",
+    ],
+)
+def test_create_rejects_a_social_link_that_is_not_a_web_address(
+    client: TestClient, network: NetworkFixture, url: str
+) -> None:
+    response = client.post(
+        "/api/v1/people",
+        json={
+            "person": person_body(social_links=[{"kind": "website", "url": url}]),
+            "connect_to_person_id": str(network.admin_person_id),
+            "strength": "normal",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.parametrize(
+    ("typed", "stored"),
+    [
+        ("linkedin.com/in/laila", "https://linkedin.com/in/laila"),
+        ("www.facebook.com/laila?x=1", "https://www.facebook.com/laila?x=1"),
+        ("example.com:8080/x", "https://example.com:8080/x"),
+        ("http://example.com", "http://example.com"),
+        ("HTTPS://Example.com/A", "HTTPS://Example.com/A"),
+    ],
+)
+def test_create_stores_a_bare_social_link_as_https(
+    client: TestClient, network: NetworkFixture, typed: str, stored: str
+) -> None:
+    body = create(client, network, social_links=[{"kind": "website", "url": typed}])
+
+    assert [link["url"] for link in body["person"]["social_links"]] == [stored]

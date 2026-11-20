@@ -269,3 +269,27 @@ create table public.duplicate_dismissal (
 );
 
 create index duplicate_dismissal_person_b_idx on public.duplicate_dismissal (person_b);
+
+-- ---------------------------------------------------------------------------
+-- idempotency_key: the Idempotency-Key of a create request (spec 11.1, ruling R18), so a retry
+-- whose first attempt did succeed (the answer was lost on a bad connection, a draft resubmitted)
+-- gets the same person back instead of a second record.
+--   scope 'admin'          POST /api/v1/people (the admin)
+--   scope 'link:<link id>' POST /api/v1/contribute/people, through that link (contribute_person)
+-- A key older than 7 days is forgotten (purged when a new key is stored). The person's delete
+-- cascades here, so a replay after a delete creates the person again.
+-- ---------------------------------------------------------------------------
+create table public.idempotency_key (
+  network_id uuid not null references public.network (id) on delete cascade,
+  scope      text not null check (scope = 'admin' or scope ~ '^link:[0-9a-f-]{36}$'),
+  key        text not null check (key ~ '^[A-Za-z0-9_-]{1,128}$'),
+  person_id  uuid not null,
+  created_at timestamptz not null default now(),
+
+  primary key (network_id, scope, key),
+  constraint idempotency_key_person_fk foreign key (network_id, person_id)
+    references public.person (network_id, id) on delete cascade
+);
+
+create index idempotency_key_person_idx on public.idempotency_key (person_id);
+create index idempotency_key_created_at_idx on public.idempotency_key (network_id, created_at);

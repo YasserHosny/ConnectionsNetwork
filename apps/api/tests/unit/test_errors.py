@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+
+import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -36,6 +39,9 @@ def _client() -> TestClient:
         }
         if kind == "boom":
             raise RuntimeError("secret internals")
+        if kind == "db":
+            # Database messages quote the offending values (DETAIL: Key (name)=(...)).
+            raise psycopg.errors.UniqueViolation("duplicate key: Sara Mahmoud, sara at example")
         raise errors[kind](details={"id": "42"})
 
     @app.post("/payload")
@@ -88,3 +94,27 @@ def test_unhandled_exception_does_not_leak_internals() -> None:
     assert response.status_code == 500
     assert response.json()["code"] == "internal_error"
     assert "secret internals" not in response.text
+
+
+def test_unhandled_database_error_logs_only_its_class(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.ERROR, logger="connections_api.errors"):
+        response = _client().get("/raise/db")
+
+    assert response.status_code == 500
+    assert "Sara" not in response.text
+    records = [r for r in caplog.records if r.name == "connections_api.errors"]
+    assert len(records) == 1
+    record = records[0]
+    assert "UniqueViolation" in record.getMessage()
+    assert "Sara" not in record.getMessage()
+    assert record.exc_info is None
+    assert record.__dict__["path"] == "/raise/db"
+
+
+def test_unhandled_exception_keeps_its_traceback(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.ERROR, logger="connections_api.errors"):
+        _client().get("/raise/boom")
+
+    records = [r for r in caplog.records if r.name == "connections_api.errors"]
+    assert len(records) == 1
+    assert records[0].exc_info is not None

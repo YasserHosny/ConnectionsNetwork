@@ -167,8 +167,19 @@ grant execute on function public.contributor_tag_suggest(bytea, text, text) to c
 -- person, so the contributor keeps seeing what they entered, spec 7.2) and one connection to the
 -- link's person with the given strength. Repeated skills, industries and contact values collapse
 -- to one; a stated skill level wins over none. Returns the new person's id; reads nothing else.
+--
+-- p_idempotency_key (optional; the request's Idempotency-Key, ruling R18): the first call with a
+-- key stores it with the new person's id (public.idempotency_key, scope 'link:<link id>'); a
+-- later call through the same link with the same key, within 7 days, inserts nothing and returns
+-- that id. The only row it reads is one this link wrote. A key that is not 1-128 characters of
+-- [A-Za-z0-9_-] raises 22023. Concurrent calls with one key are serialised by a transaction
+-- advisory lock on (link, key).
 -- ---------------------------------------------------------------------------
-create or replace function public.contribute_person(p_token_hash bytea, p_payload jsonb)
+create or replace function public.contribute_person(
+  p_token_hash      bytea,
+  p_payload         jsonb,
+  p_idempotency_key text default null
+)
 returns uuid
 language plpgsql
 volatile
@@ -184,6 +195,9 @@ declare
   c_max_links    constant int := 20;  -- social links
   c_max_contacts constant int := 20;
   c_max_avail    constant int := 4;
+  -- Social link URLs, the API's rule (people/schemas.py _web_url): no javascript:, data:, ...
+  c_http_url     constant text := '^https?://[^ \t\n\r\f\v/?#]+';
+  c_bare_url     constant text := '^[^ \t\n\r\f\v:/?#]+(:[0-9]+)?([/?#].*)?$';
   c_text_keys    constant text[] := array[
     'name_ar', 'name_latin', 'headline', 'organization', 'profession', 'city', 'country'
   ];
@@ -197,12 +211,31 @@ declare
   v_item     jsonb;
   v_id       uuid;
   v_tag_id   uuid;
+  v_scope    text;
 begin
   select l.id, l.network_id, l.person_id into v_link
   from public.contributor_link l
   where l.token_hash = p_token_hash and l.revoked_at is null and l.expires_at > now();
   if not found then
     raise exception 'invalid_link' using errcode = '28000';
+  end if;
+
+  -- -- a replayed key answers with the person it created -------------------------------------
+  if p_idempotency_key is not null then
+    if p_idempotency_key !~ '^[A-Za-z0-9_-]{1,128}$' then
+      raise exception 'invalid idempotency key' using errcode = '22023';
+    end if;
+    v_scope := 'link:' || v_link.id::text;
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+      v_link.network_id::text || ':' || v_scope || ':' || p_idempotency_key, 0));
+    delete from public.idempotency_key k
+    where k.network_id = v_link.network_id and k.created_at < now() - interval '7 days';
+    select k.person_id into v_id
+    from public.idempotency_key k
+    where k.network_id = v_link.network_id and k.scope = v_scope and k.key = p_idempotency_key;
+    if found then
+      return v_id;
+    end if;
   end if;
 
   -- -- validate the whole payload before writing anything ----------------------------------
@@ -289,7 +322,11 @@ begin
        or exists (select 1 from jsonb_object_keys(v_item) k where k not in ('kind', 'url'))
        or jsonb_typeof(v_item -> 'kind') is distinct from 'string'
        or jsonb_typeof(v_item -> 'url') is distinct from 'string'
-       or btrim(v_item ->> 'url') = '' or char_length(btrim(v_item ->> 'url')) > c_max_url then
+       or btrim(v_item ->> 'url') = '' or char_length(btrim(v_item ->> 'url')) > c_max_url
+       -- a web address: http(s) with a host, or a bare host[:port][/path] (stored with https://)
+       or not (btrim(v_item ->> 'url') ~* c_http_url
+               or (strpos(btrim(v_item ->> 'url'), '://') = 0
+                   and btrim(v_item ->> 'url') ~ c_bare_url)) then
       raise exception 'person.social_links has an invalid entry' using errcode = '22023';
     end if;
     perform (v_item ->> 'kind')::public.social_link_kind;
@@ -350,7 +387,9 @@ begin
   end loop;
 
   insert into public.social_link (network_id, person_id, kind, url)
-  select v_link.network_id, v_id, (s ->> 'kind')::public.social_link_kind, btrim(s ->> 'url')
+  select v_link.network_id, v_id, (s ->> 'kind')::public.social_link_kind,
+         case when btrim(s ->> 'url') ~* c_http_url then btrim(s ->> 'url')
+              else 'https://' || btrim(s ->> 'url') end
   from jsonb_array_elements(coalesce(v_person -> 'social_links', '[]')) with ordinality e(s, n)
   order by n;
 
@@ -371,15 +410,20 @@ begin
     v_strength, v_link.person_id
   );
 
+  if p_idempotency_key is not null then
+    insert into public.idempotency_key (network_id, scope, key, person_id)
+    values (v_link.network_id, v_scope, p_idempotency_key, v_id);
+  end if;
+
   return v_id;
 end
 $$;
 
-comment on function public.contribute_person(bytea, jsonb) is
+comment on function public.contribute_person(bytea, jsonb, text) is
   'Insert one person (and their tags, links, contacts, connection) through a valid link token
-   hash; raises invalid_link (28000) otherwise, 22023/22P02 on an invalid payload.
-   contributor_api only.';
+   hash; raises invalid_link (28000) otherwise, 22023/22P02 on an invalid payload. A repeated
+   idempotency key returns the first call''s person. contributor_api only.';
 
-revoke all on function public.contribute_person(bytea, jsonb)
+revoke all on function public.contribute_person(bytea, jsonb, text)
   from public, anon, authenticated, service_role;
-grant execute on function public.contribute_person(bytea, jsonb) to contributor_api;
+grant execute on function public.contribute_person(bytea, jsonb, text) to contributor_api;

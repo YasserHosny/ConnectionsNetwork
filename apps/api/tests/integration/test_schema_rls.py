@@ -112,6 +112,11 @@ def _seed_every_table(conn: psycopg.Connection[Any], network: NetworkFixture) ->
         "insert into duplicate_dismissal (network_id, person_a, person_b) values (%s, %s, %s)",
         (nid, a, b),
     )
+    conn.execute(
+        "insert into idempotency_key (network_id, scope, key, person_id)"
+        " values (%s, 'admin', %s, %s)",
+        (nid, str(uuid4()), other),
+    )
 
 
 def _count(tx: psycopg.Connection[Any], table: str) -> int:
@@ -141,6 +146,7 @@ def test_every_table_is_network_scoped_with_forced_rls(conn: psycopg.Connection[
         "connection",
         "contributor_link",
         "duplicate_dismissal",
+        "idempotency_key",
     }
     for name, enabled, forced, has_network_id in rows:
         assert enabled and forced, f"{name}: RLS must be ENABLEd and FORCEd"

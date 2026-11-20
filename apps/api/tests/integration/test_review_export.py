@@ -215,6 +215,7 @@ NETWORK_TABLES = {
     "connection",
     "contributor_link",
     "duplicate_dismissal",
+    "idempotency_key",
 }
 
 

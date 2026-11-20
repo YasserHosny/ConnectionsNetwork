@@ -30,6 +30,7 @@ from connections_api.modules.people.schemas import (
     TagKind,
     TagOut,
 )
+from connections_api.shared.idempotency import IDEMPOTENCY_KEY_TTL
 
 type Conn = psycopg.Connection[Any]
 type Row = dict[str, Any]
@@ -318,7 +319,55 @@ def _possible_duplicates(conn: Conn, person_id: UUID) -> list[DuplicateHint]:
     ]
 
 
-def create_person(conn: Conn, ctx: AdminContext, request: NewPersonRequest) -> CreatePersonResponse:
+# The admin's create requests share one idempotency scope per network (contributor links use
+# 'link:<link id>', inside contribute_person).
+_ADMIN_SCOPE = "admin"
+
+
+def _replayed_person(conn: Conn, ctx: AdminContext, key: str) -> UUID | None:
+    """The person a stored Idempotency-Key created, after forgetting keys past their TTL.
+
+    A transaction advisory lock on (network, scope, key) makes a concurrent retry with the same
+    key wait for the first attempt to commit, and then find its row, rather than create a second
+    person.
+    """
+    conn.execute(
+        "select pg_advisory_xact_lock(hashtextextended(%s, 0))",
+        (f"{ctx.network_id}:{_ADMIN_SCOPE}:{key}",),
+    )
+    conn.execute(
+        "delete from idempotency_key where created_at < now() - %s::interval",
+        (IDEMPOTENCY_KEY_TTL,),
+    )
+    row = conn.execute(
+        "select person_id from idempotency_key where scope = %s and key = %s",
+        (_ADMIN_SCOPE, key),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _create_response(conn: Conn, person_id: UUID) -> CreatePersonResponse:
+    return CreatePersonResponse(
+        person=get_person_or_404(conn, person_id),
+        possible_duplicates=_possible_duplicates(conn, person_id),
+    )
+
+
+def create_person(
+    conn: Conn,
+    ctx: AdminContext,
+    request: NewPersonRequest,
+    idempotency_key: str | None = None,
+) -> CreatePersonResponse:
+    """Create a person connected to `connect_to_person_id`.
+
+    With an Idempotency-Key that already created a person (within 7 days), nothing is written
+    and the answer is that person, as it is now.
+    """
+    if idempotency_key is not None:
+        replayed = _replayed_person(conn, ctx, idempotency_key)
+        if replayed is not None:
+            return _create_response(conn, replayed)
     _require_person(conn, request.connect_to_person_id, "connect_to_person_id")
     data = request.person
     row = conn.execute(
@@ -345,10 +394,13 @@ def create_person(conn: Conn, ctx: AdminContext, request: NewPersonRequest) -> C
         conn, ctx, person_id, request.connect_to_person_id, request.strength.value,
         request.connection_note,
     )  # fmt: skip
-    return CreatePersonResponse(
-        person=get_person_or_404(conn, person_id),
-        possible_duplicates=_possible_duplicates(conn, person_id),
-    )
+    if idempotency_key is not None:
+        conn.execute(
+            "insert into idempotency_key (network_id, scope, key, person_id)"
+            " values (%s, %s, %s, %s)",
+            (ctx.network_id, _ADMIN_SCOPE, idempotency_key, person_id),
+        )
+    return _create_response(conn, person_id)
 
 
 def update_person(conn: Conn, ctx: AdminContext, person_id: UUID, data: PersonInput) -> PersonOut:

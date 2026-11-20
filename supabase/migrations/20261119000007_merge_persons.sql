@@ -30,6 +30,7 @@
 --     remains with the stronger strength and keep's own note when it has one. The connections
 --     the dropped person created are attributed to keep.
 --   * contributor links move to keep: a link already handed out keeps working, for keep.
+--   * idempotency keys that created drop answer with keep.
 --   * people the dropped person created are attributed to keep (unless that is keep itself:
 --     nobody is the creator of themselves, the reference is cleared instead).
 --   * dismissed pairs move to keep, minus the pair of the two themselves and minus repeats.
@@ -189,6 +190,9 @@ begin
   where p_drop in (person_a, person_b);
 
   update public.contributor_link set person_id = p_keep where person_id = p_drop;
+
+  -- A retried create request (Idempotency-Key) that made drop now answers with keep.
+  update public.idempotency_key set person_id = p_keep where person_id = p_drop;
 
   -- Dismissed pairs involving drop become keep's, except the pair of the two themselves.
   insert into public.duplicate_dismissal (network_id, person_a, person_b)

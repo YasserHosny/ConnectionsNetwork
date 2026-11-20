@@ -30,6 +30,7 @@ from connections_api.modules.links.schemas import (
     LinkOut,
 )
 from connections_api.modules.people.schemas import TagKind
+from connections_api.shared.idempotency import IdempotencyKey
 from connections_api.shared.rate_limit import CONTRIBUTOR_TOKEN_HEADER, contributor_rate_limits
 
 router = APIRouter(tags=["links"])
@@ -90,6 +91,9 @@ def contributor_tags(
 )
 @contributor_rate_limits
 def contribute_person(
-    request: Request, body: ContributeRequest, token: ContributorToken = None
+    request: Request,
+    body: ContributeRequest,
+    token: ContributorToken = None,
+    idempotency_key: IdempotencyKey = None,
 ) -> ContributeResponse:
-    return ContributeResponse(person_id=service.contribute(token, body))
+    return ContributeResponse(person_id=service.contribute(token, body, idempotency_key))

@@ -175,12 +175,16 @@ def suggest_tags(token: str | None, kind: TagKind, q: str) -> list[ContributorTa
     return [ContributorTag.model_validate(r) for r in rows]
 
 
-def contribute(token: str | None, request: ContributeRequest) -> UUID:
+def contribute(
+    token: str | None, request: ContributeRequest, idempotency_key: str | None = None
+) -> UUID:
+    """The new person's id; a replayed Idempotency-Key answers with the person it created."""
     token_hash = hash_token(token or "")
     payload = {"person": request.person.payload(), "strength": request.strength.value}
     with _contributor_tx() as conn:
         row = conn.execute(
-            "select public.contribute_person(%s, %s::jsonb)", (token_hash, json.dumps(payload))
+            "select public.contribute_person(%s, %s::jsonb, %s)",
+            (token_hash, json.dumps(payload), idempotency_key),
         ).fetchone()
     assert row is not None
     return row[0]

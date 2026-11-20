@@ -97,3 +97,28 @@ def test_uvicorn_loggers_go_through_the_redacting_root_handler(
     assert uvicorn_access.handlers == []
     assert "GET /x for" in out
     assert EMAIL not in out
+
+
+@pytest.mark.parametrize(
+    "number",
+    [
+        "010.1234.5678",
+        "(010) 1234 5678",
+        "010  1234  5678",
+        "+20 (10) 1234-5678",
+        "010 - 1234 - 5678",
+        "٠١٠١٢٣٤٥٦٧٨",
+    ],
+)
+def test_log_redaction_covers_other_phone_spellings(
+    capsys: pytest.CaptureFixture[str], number: str
+) -> None:
+    configure_logging("info")
+
+    logging.getLogger("test").info("call %s today", number)
+
+    message = json.loads(_emitted(capsys))["message"]
+    assert message.startswith("call ")
+    assert message.endswith(" today")
+    # Not one digit of the number is left (an area code alone already narrows it down).
+    assert not any(ch.isdigit() for ch in message), message

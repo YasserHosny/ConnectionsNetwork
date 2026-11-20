@@ -92,7 +92,7 @@ declare
 begin
   foreach t in array array[
     'network', 'member', 'person', 'tag', 'person_skill', 'person_industry', 'social_link',
-    'contact_value', 'connection', 'contributor_link', 'duplicate_dismissal'
+    'contact_value', 'connection', 'contributor_link', 'duplicate_dismissal', 'idempotency_key'
   ] loop
     scoped := case when t = 'network' then 'id' else 'network_id' end;
     execute format('alter table public.%I enable row level security', t);

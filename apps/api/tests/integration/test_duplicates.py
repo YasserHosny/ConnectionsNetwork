@@ -599,6 +599,12 @@ def test_merge_repoints_every_other_reference(
     dismiss(conn, network, keep, n1)
     dismiss(conn, network, n2, drop)
     dismiss(conn, network, keep, drop)
+    # A retry of the request that created drop answers with keep after the merge.
+    conn.execute(
+        "insert into idempotency_key (network_id, scope, key, person_id)"
+        " values (%s, 'admin', 'created-drop', %s)",
+        (network.network_id, drop),
+    )
 
     response = merge(client, keep, drop)
 
@@ -621,6 +627,9 @@ def test_merge_repoints_every_other_reference(
     assert {frozenset(d) for d in dismissals} == {frozenset((keep, n1)), frozenset((keep, n2))}
     assert len(dismissals) == 2
     assert all(a < b for a, b in dismissals)
+    assert rows(
+        conn, "select person_id from idempotency_key where network_id = %s", network.network_id
+    ) == [(keep,)]
 
 
 def test_merge_does_not_make_a_person_the_creator_of_themselves(

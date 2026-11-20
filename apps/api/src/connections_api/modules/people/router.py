@@ -21,6 +21,7 @@ from connections_api.modules.people.schemas import (
     TagKind,
     TagOut,
 )
+from connections_api.shared.idempotency import IdempotencyKey
 
 router = APIRouter(tags=["people"])
 
@@ -29,8 +30,10 @@ Tx = Annotated[psycopg.Connection[Any], Depends(admin_tx)]
 
 
 @router.post("/people", response_model=CreatePersonResponse, status_code=status.HTTP_201_CREATED)
-def create_person(body: NewPersonRequest, admin: Admin, conn: Tx) -> CreatePersonResponse:
-    return service.create_person(conn, admin, body)
+def create_person(
+    body: NewPersonRequest, admin: Admin, conn: Tx, idempotency_key: IdempotencyKey = None
+) -> CreatePersonResponse:
+    return service.create_person(conn, admin, body, idempotency_key)
 
 
 @router.get("/people/{person_id}", response_model=PersonOut)

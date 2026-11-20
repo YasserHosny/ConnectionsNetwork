@@ -46,6 +46,7 @@ _TABLES: dict[str, tuple[str, ...]] = {
     "connection": ("id",),
     "contributor_link": ("id",),
     "duplicate_dismissal": ("person_a", "person_b"),
+    "idempotency_key": ("scope", "key"),
 }
 
 _NEVER_EXPORTED: frozenset[tuple[str, str]] = frozenset(

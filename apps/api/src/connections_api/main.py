@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, FastAPI, Response, status
+from fastapi import APIRouter, FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -16,7 +16,7 @@ from connections_api.modules.people.router import router as people_router
 from connections_api.modules.review.router import router as review_router
 from connections_api.modules.search.router import router as search_router
 from connections_api.shared.logging import TraceIdMiddleware, configure_logging
-from connections_api.shared.rate_limit import configure_rate_limiting
+from connections_api.shared.rate_limit import HEALTH_DB_LIMIT, configure_rate_limiting, limiter
 
 API_PREFIX = "/api/v1"
 
@@ -39,8 +39,11 @@ def health() -> HealthResponse:
 
 
 @router.get("/health/db", response_model=HealthResponse)
-def health_db(response: Response) -> HealthResponse:
+@limiter.limit(HEALTH_DB_LIMIT)
+def health_db(request: Request, response: Response) -> HealthResponse:
     """Liveness of the database: `select 1` through db.connect. No auth (the nightly keepalive).
+
+    Rate limited per client address: it opens a database connection per call and anyone can call it.
 
     The answer carries no error text: an unreachable database is a plain 503, and the log gets
     the exception class only, never its message (which can name hosts).

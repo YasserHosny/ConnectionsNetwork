@@ -73,8 +73,21 @@ def test_health_db_unavailable_does_not_leak_error_details(
     assert response.headers["X-Trace-Id"]
 
 
-def test_health_db_needs_no_authentication() -> None:
-    # No Authorization header: the route must not be behind current_admin (any answer but 401/403).
+def test_health_db_needs_no_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No Authorization header, and no real connection attempted: exactly 200.
+    monkeypatch.setattr(db, "connect", lambda dsn=None, **kwargs: _FakeConnection())
+
     response = TestClient(app).get("/api/v1/health/db")
 
-    assert response.status_code in {200, 503}
+    assert response.status_code == 200
+
+
+def test_health_db_is_rate_limited_per_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Unauthenticated and opening a connection per call: it must not be a way to exhaust the
+    # (Free plan) pooler. 30 a minute per client address; the 31st is refused.
+    monkeypatch.setattr(db, "connect", lambda dsn=None, **kwargs: _FakeConnection())
+    client = TestClient(app)
+
+    statuses = [client.get("/api/v1/health/db").status_code for _ in range(31)]
+
+    assert statuses == [200] * 30 + [429]

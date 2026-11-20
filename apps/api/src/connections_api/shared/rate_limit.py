@@ -1,8 +1,9 @@
 """SlowAPI rate limiting, after PP's shared/rate_limit.py.
 
-Only the contributor endpoints are limited (spec 11.4): they need no account, so the limit is
-what stands between a leaked or guessed link and a flood of submissions. Each contributor
-endpoint has two budgets, both checked on every request:
+Only the endpoints that need no account are limited. The contributor endpoints (spec 11.4): the
+limit is what stands between a leaked or guessed link and a flood of submissions. And
+GET /health/db, which opens a database connection per call (HEALTH_DB_LIMIT per client address).
+Each contributor endpoint has two budgets, both checked on every request:
 
   * 30/minute per link: keyed by sha256(b"ratelimit:" + X-Contributor-Token).
   * 60/minute per client address: keyed by the remote IP, so rotating made-up tokens does not
@@ -41,6 +42,8 @@ from connections_api.shared.logging import get_trace_id
 CONTRIBUTOR_TOKEN_HEADER = "X-Contributor-Token"
 CONTRIBUTOR_TOKEN_LIMIT = "30/minute"
 CONTRIBUTOR_IP_LIMIT = "60/minute"
+# The nightly keepalive calls it once; anything near this is not the keepalive.
+HEALTH_DB_LIMIT = "30/minute"
 
 limiter = Limiter(key_func=get_remote_address, key_style="endpoint")
 

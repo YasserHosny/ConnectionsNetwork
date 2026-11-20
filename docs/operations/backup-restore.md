@@ -9,8 +9,8 @@ The Supabase Free plan has no backups, and it pauses a project after 7 days with
    and checks the object is listed with the size it sent;
 3. deletes our `connections-<date>.dump.age` objects dated more than 30 days ago (it never
    touches other objects, and refuses to delete anything if no recent backup is in the zone);
-4. calls `GET $WEB_PUBLIC_URL/api/v1/health/db` (Nginx, API, `select 1` on the database) and
-   `GET $SUPABASE_URL/rest/v1/`, so the project is not paused. This step runs even when the backup
+4. calls `GET $WEB_PUBLIC_URL/api/v1/health/db` (Nginx, API, `select 1` on the database; must
+   answer 200) and `GET $SUPABASE_URL/rest/v1/` (any HTTP answer), so the project is not paused. This step runs even when the backup
    failed.
 
 The steps are in `scripts/backup.sh`; the workflow installs `postgresql-client-17`, `age` and `jq`
@@ -45,9 +45,15 @@ endpoint and its password (Storage, the zone, FTP & API Access).
 
 ### GitHub secrets
 
-In the `production` GitHub Environment (Settings, Environments, `production`; the same one
-`deploy.yml` uses; its deployment-branch rule limits it to `main`, and `backup.yml` runs from
-`main` only):
+In their **own GitHub Environment named `backup`** (Settings, Environments, New environment), not
+`production`, and not repository secrets:
+
+- Deployment branches and tags: **Selected branches and tags**, rule `main` (`backup.yml` runs from
+  `main` only, and scheduled runs always use `main`).
+- **Never add required reviewers to `backup`.** A run that needs an approval waits for it: a
+  scheduled run would sit there, send no failure email and be cancelled after 30 days, which is
+  silently no backups. (`production`, used by the deploy workflow, may have reviewers; that is why
+  the backup does not share it.)
 
 | Secret | Value |
 | --- | --- |
@@ -64,7 +70,7 @@ In the `production` GitHub Environment (Settings, Environments, `production`; th
 
 Actions, **Backup**, Run workflow, branch `main`. Expect a green run with these log lines:
 `pg_dump (PostgreSQL) 17.x`, `backup uploaded: backups/connections-<date>.dump.age (<n> bytes)`,
-`retention: kept 1, deleted 0 ...`, `{"status":"ok"}` and `keepalive ok`. In bunny.net, Storage, the
+`retention: kept 1, deleted 0 ...`, `{"status":"ok"}`, `supabase rest answered HTTP <code>` and `keepalive ok`. In bunny.net, Storage, the
 zone, folder `backups/`: the `.dump.age` object is there.
 
 Notes:
@@ -73,9 +79,13 @@ Notes:
   emails on. A red Backup run means there is no backup for that night.
 - On a public repository GitHub switches scheduled workflows off after 60 days with no repository
   activity. Then the backups **and the keepalive** stop; re-enable it under Actions.
-- If the keepalive's second call (`/rest/v1/`) is refused on your project (401 or 403), tell the
-  maintainer: the call has to change to something the anon key may read. The API call before it
-  already proves the database answers.
+- The keepalive makes two calls. `GET /api/v1/health/db` is the real one: it must answer 200, so a
+  database that is down or paused turns the run red. `GET $SUPABASE_URL/rest/v1/` is the direct
+  touch of Supabase: **any HTTP answer is accepted**, including 401 or 403 (newer projects may
+  refuse the anon key on that root path), and only a network error or a 5xx fails it. The log shows
+  `supabase rest answered HTTP <code>`.
+- `/api/v1/health/db` is rate limited to 30 a minute per client address; the nightly run makes
+  one call.
 
 ## 2. The restore drill
 

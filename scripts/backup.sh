@@ -4,8 +4,9 @@
 #
 #   scripts/backup.sh backup      pg_dump | age -> $RUNNER_TEMP, upload to bunny.net Storage, verify
 #   scripts/backup.sh retention   delete backups older than 30 days from the storage zone
-#   scripts/backup.sh keepalive   hit the API's database check and Supabase, so the project
-#                                 does not pause after 7 days without activity (Free plan)
+#   scripts/backup.sh keepalive   hit the API's database check (must be 2xx) and Supabase REST (any
+#                                 HTTP answer), so the project does not pause after 7 days without
+#                                 activity (Free plan)
 #
 # Everything comes from the environment and nothing is echoed. The dump is streamed straight
 # into age: no plaintext copy of the data is ever written to disk. Only the age PUBLIC key is
@@ -131,10 +132,15 @@ cmd_keepalive() {
   # Through the public site: Nginx -> API -> `select 1` on the database (503 if it cannot).
   curl -fsS --max-time 30 --retry 3 --retry-delay 5 "${WEB_PUBLIC_URL%/}/api/v1/health/db"
   echo
-  # Straight to Supabase, so activity is recorded even if the API path is down.
-  curl -fsS --max-time 30 --retry 3 --retry-delay 5 -o /dev/null \
+  # Straight to Supabase, so activity is recorded even if the API path is down. Any HTTP answer
+  # counts: a project that refuses the anon key on this root path (401/403) still saw the request,
+  # and the call above is the real keepalive. Only a network error or a 5xx fails here.
+  local code
+  code="$(curl -sS --max-time 30 --retry 3 --retry-delay 5 -o /dev/null -w '%{http_code}' \
     --config <(printf 'header = "apikey: %s"\n' "$SUPABASE_ANON_KEY") \
-    "${SUPABASE_URL%/}/rest/v1/"
+    "${SUPABASE_URL%/}/rest/v1/")"
+  echo "supabase rest answered HTTP $code"
+  [[ "$code" =~ ^[1-4][0-9][0-9]$ ]] || die "supabase rest check failed (HTTP $code)"
   echo "keepalive ok"
 }
 

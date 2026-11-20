@@ -28,7 +28,10 @@ workflow); the containers must be created with exactly these names.
    - Environment secrets (not repository secrets, so no other workflow or branch can read them):
      `BUNNY_API_KEY` (bunny.net account API key) and `BUNNY_APP_ID` (the app's id). The app id
      exists only after item 3, so add that secret then.
-   - Optionally add yourself as a required reviewer.
+   - Optionally add yourself as a required reviewer. This is for `production` only: the nightly
+     backup workflow has its own `backup` environment (backup-restore.md), which must **never**
+     have required reviewers, or a scheduled run waits for an approval that never comes and no
+     backup is taken.
 
    `GITHUB_TOKEN` is provided by Actions.
 2. The images do not exist until the workflow has run once. Run **Actions, Deploy, Run workflow**
@@ -276,5 +279,6 @@ use it in a private window. (Do not send a link to anyone else yet: step 11 come
 The Free plan has no backups. Set up the nightly encrypted backup and **run the restore drill before
 the first contributor link is sent** (spec section 10): `docs/operations/backup-restore.md`, sections
 1 and 2. Fill in the first row of its drill log; the row is the evidence that a backup can be read
-and restored with equal `person`, `connection` and `contact_value` counts. The same job's keepalive
+and restored with equal `person`, `connection` and `contact_value` counts. Its secrets go in a
+separate `backup` GitHub Environment, never one with required reviewers. The same job's keepalive
 stops the project pausing after 7 days without activity.

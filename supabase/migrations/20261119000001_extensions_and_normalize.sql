@@ -26,7 +26,7 @@ as $$
       regexp_replace(
         translate(lower(t), 'أإآٱةىؤئ', 'ااااهيوي'),
         '[ً-ْـ]', '', 'g'),
-      '[ \t\n\r\f\v ]+', ' ', 'g'),
+      '[ \t\n\r\f\v\u00a0]+', ' ', 'g'),
     ' ')
 $$;
 
@@ -34,8 +34,11 @@ $$;
 --   a leading + is kept (the number already carries its country code);
 --   a leading 00 is the international prefix, so it becomes +;
 --   a leading 0 is the national trunk prefix, so it becomes +20 and the zero is dropped;
+--   no prefix and exactly 20 + ten digits is an Egyptian number written with its country code but
+--   no + (the WhatsApp / wa.me form): + is prepended;
 --   no prefix and 10 or more digits is a national number without its zero: +20 is prepended;
 --   no prefix and fewer than 10 digits cannot be placed in a country: returned as digits only.
+-- Arabic-Indic (U+0660-0669) and Extended Arabic-Indic (U+06F0-06F9) digits are read as 0-9.
 -- No digits at all (or only zeros) is not a phone number: NULL.
 create or replace function public.normalize_phone(t text) returns text
 language sql immutable strict parallel safe
@@ -46,24 +49,30 @@ as $$
     when d.has_plus then '+' || d.digits
     when d.digits like '00%' then '+' || substr(d.digits, 3)
     when d.digits like '0%' then '+20' || substr(d.digits, 2)
+    when d.digits ~ '^20[0-9]{10}$' then '+' || d.digits
     when length(d.digits) >= 10 then '+20' || d.digits
     else d.digits
   end
   from (
     select
-      regexp_replace(t, '[^0-9]', '', 'g') as digits,
+      regexp_replace(a.ascii, '[^0-9]', '', 'g') as digits,
       -- the first digit-or-plus character is a plus, so "(+20) 10 ..." counts too
-      t ~ '^[^0-9+]*\+' as has_plus
+      a.ascii ~ '^[^0-9+]*\+' as has_plus
+    from (
+      select translate(t, '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789') as ascii
+    ) a
   ) d
 $$;
 
 -- normalize_email: lowercased and trimmed (the local part is case-sensitive in theory, not in
--- practice; the spec wants exact-match duplicate detection).
+-- practice; the spec wants exact-match duplicate detection). Blank: NULL.
 create or replace function public.normalize_email(t text) returns text
 language sql immutable strict parallel safe
 set search_path = ''
 as $$
-  select regexp_replace(lower(t), '^[ \t\n\r\f\v ]+|[ \t\n\r\f\v ]+$', '', 'g')
+  select nullif(
+    regexp_replace(lower(t), '^[ \t\n\r\f\v\u00a0]+|[ \t\n\r\f\v\u00a0]+$', '', 'g'),
+    '')
 $$;
 
 -- normalize_url: for exact-match duplicate detection of profile links.
@@ -78,7 +87,7 @@ as $$
       regexp_replace(
         regexp_replace(
           regexp_replace(
-            lower(regexp_replace(t, '^[ \t\n\r\f\v ]+|[ \t\n\r\f\v ]+$', '', 'g')),
+            lower(regexp_replace(t, '^[ \t\n\r\f\v\u00a0]+|[ \t\n\r\f\v\u00a0]+$', '', 'g')),
             '[?#].*$', ''),
           '^[a-z][a-z0-9+.-]*://', ''),
         '^www\.', ''),

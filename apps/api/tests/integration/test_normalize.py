@@ -52,7 +52,7 @@ def _apply(conn: psycopg.Connection[Any], function: str, value: str | None) -> s
         # Latin: lowercased, whitespace collapsed and trimmed.
         ("  Marketing  ", "marketing"),
         ("Senior \t Product\n Manager", "senior product manager"),
-        (" Sara Ali ", "sara ali"),
+        ("\u00a0Sara\u00a0Ali\u00a0", "sara ali"),
         # Digits are left alone (no Arabic-Indic folding).
         ("Room ١٢٣ 45", "room ١٢٣ 45"),
         ("   ", ""),
@@ -71,6 +71,12 @@ def test_normalize_text(conn: psycopg.Connection[Any], raw: str, expected: str) 
         ("00201012345678", "+201012345678"),
         ("01012345678", "+201012345678"),
         ("1012345678", "+201012345678"),
+        # Country code without + or 00 (WhatsApp / wa.me form): 20 plus ten digits.
+        ("201012345678", "+201012345678"),
+        # Arabic-Indic and Extended Arabic-Indic digits.
+        ("٠١٠١٢٣٤٥٦٧٨", "+201012345678"),
+        ("+٢٠ ١٠ ١٢٣٤ ٥٦٧٨", "+201012345678"),
+        ("۰۱۰۱۲۳۴۵۶۷۸", "+201012345678"),
         ("(010) 1234-5678", "+201012345678"),
         ("  +20.10.1234.5678  ", "+201012345678"),
         ("(+20) 10 1234 5678", "+201012345678"),
@@ -94,9 +100,11 @@ def test_normalize_phone(conn: psycopg.Connection[Any], raw: str, expected: str 
         ("Sara.Ali@Example.COM", "sara.ali@example.com"),
         ("  sara@example.com  ", "sara@example.com"),
         ("\tSARA@example.com\n", "sara@example.com"),
+        ("  ", None),
+        ("", None),
     ],
 )
-def test_normalize_email(conn: psycopg.Connection[Any], raw: str, expected: str) -> None:
+def test_normalize_email(conn: psycopg.Connection[Any], raw: str, expected: str | None) -> None:
     assert _apply(conn, "normalize_email", raw) == expected
 
 

@@ -19,22 +19,34 @@ The images are `ghcr.io/<owner>/connections-api` and `ghcr.io/<owner>/connection
 and `connections-web` (the `BUNNY_API_CONTAINER` / `BUNNY_WEB_CONTAINER` values at the top of the
 workflow); the containers must be created with exactly these names.
 
-1. In bunny.net create **one Magic Containers app** with **two containers** in it, `connections-api`
+1. GitHub Environment `production`, created **before the first run** (a run that names a missing
+   environment creates it with no branch rule): Settings, Environments, New environment.
+   `deploy.yml`'s job runs in it, and only from `main` (`if: github.ref == 'refs/heads/main'`),
+   because a manually started run can otherwise be pointed at any branch by anyone with write
+   access, and would push `latest` and use the bunny.net key.
+   - Deployment branches and tags: **Selected branches and tags**, add the rule `main`.
+   - Environment secrets (not repository secrets, so no other workflow or branch can read them):
+     `BUNNY_API_KEY` (bunny.net account API key) and `BUNNY_APP_ID` (the app's id). The app id
+     exists only after item 3, so add that secret then.
+   - Optionally add yourself as a required reviewer.
+
+   `GITHUB_TOKEN` is provided by Actions.
+2. The images do not exist until the workflow has run once. Run **Actions, Deploy, Run workflow**
+   **from `main`** (the branch selector in the dialog). It builds and pushes both images, then its
+   deploy steps fail because the app and containers are not there yet (and `BUNNY_APP_ID` is not
+   set). That first failure is expected.
+3. In bunny.net create **one Magic Containers app** with **two containers** in it, `connections-api`
    (port 8000) and `connections-web` (port 80), pulling the two images above. Only the web
    container's port 80 may be published as the app's endpoint. **Never publish port 8000**: the API is
-   reached only through Nginx, and uvicorn trusts forwarded headers from localhost.
-2. Registry: if the GHCR packages are private, add a GHCR pull registry in bunny.net (a GitHub
-   token with `read:packages`) and select it for both containers. Alternatively make both packages
-   public.
-3. The images do not exist until the workflow has run once. Run **Actions, Deploy, Run workflow**
-   once before creating the containers. It builds and pushes both images, then its two update steps
-   fail because the containers are not there yet. That first failure is expected. Create the
-   containers, then run the workflow again.
-4. GitHub repository secrets (Settings, Secrets and variables, Actions): `BUNNY_API_KEY` (bunny.net
-   account API key) and `BUNNY_APP_ID` (the app's id). `GITHUB_TOKEN` is provided by Actions.
+   reached only through Nginx, and uvicorn trusts forwarded headers from localhost. Then add
+   `BUNNY_APP_ID` to the `production` environment's secrets and run the workflow again, from `main`.
+4. Registry: if the GHCR packages are private, add a GHCR pull registry in bunny.net (a GitHub
+   token with `read:packages`) and select it for both containers (needed already when creating
+   them in item 3). Alternatively make both packages public.
 
 Verify: the second workflow run is green, and the bunny.net dashboard shows both containers on the
-commit SHA tag.
+commit SHA tag. Also check the guard: starting the workflow from any other branch shows the deploy job as
+skipped.
 
 ## 2. Hosted Supabase: run the migrations
 
@@ -66,8 +78,8 @@ select public.similarity('ahmed', 'ahmad');   -- must return a number, not an er
 If the schema is not `public`, fix it with `alter extension pg_trgm set schema public;` and repeat
 the check. Smoke test **after step 9**, once the stack is up: signed in as the admin (aal2), open
 the app's tag field, or call `GET /api/v1/tags?kind=skill&q=a`, and expect 200 with a list; then,
-with a contributor link from step 8, `GET /api/v1/contribute/tags?q=a` with the
-`X-Contributor-Token` header and expect 200 (the web page does this when a contributor types a
+with a contributor link from step 8, `GET /api/v1/contribute/tags?kind=skill&q=a` with the
+`X-Contributor-Token` header and expect 200 (`kind` is required: without it the answer is 422) (the web page does this when a contributor types a
 tag).
 
 ## 4. The `contributor_api` role
@@ -250,7 +262,7 @@ curl -s -o /dev/null "$SITE/api/v1/health?x=querycheck"
 
 Neither may contain `querycheck`, a client address, or any contributor token. Also check that the
 API sees the real client address: the per-IP limit is only as good as it. Make 70 requests to a
-contributor endpoint from one machine (`/api/v1/contribute/tags?q=a`, a different made-up
+contributor endpoint from one machine (`/api/v1/contribute/tags?kind=skill&q=a`, a different made-up
 `X-Contributor-Token` each time, so the per-link budget of 30 a minute is not what trips); the 61st
 to the 70th must answer 429, and an unrelated machine must still get through. If every visitor shares
 one budget, bunny.net's edge address is what Nginx forwards, and Nginx needs `set_real_ip_from`

@@ -26,6 +26,12 @@ env:
 jobs:
   deploy:
     name: Build, push and deploy api and web
+    # workflow_dispatch can be started from any branch by anyone with write access. This job
+    # builds the `latest` images and holds the bunny.net key, so it runs from main only, and in
+    # the `production` environment, whose deployment-branch rule (main only) and secrets belong to
+    # the owner (docs/operations/deploy-checklist.md, step 1).
+    if: github.ref == 'refs/heads/main'
+    environment: production
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository

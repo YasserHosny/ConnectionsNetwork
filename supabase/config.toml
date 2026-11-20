@@ -1,0 +1,111 @@
+# Supabase CLI configuration for local development, trimmed from ProcurePilot's.
+# Reference: https://supabase.com/docs/guides/local-development/cli/config
+#
+# Hosted Supabase does not read this file: mirror the [auth] settings below in the hosted
+# project's dashboard (sign-ups off, TOTP MFA on, the custom access token hook registered).
+project_id = "ConnectionsNetwork"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+health_timeout = "2m"
+# Must match the hosted project's major version.
+major_version = 17
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
+[db.seed]
+# No seed file: the admin is created by apps/api/scripts/bootstrap_admin.py.
+enabled = false
+
+[realtime]
+enabled = false
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+
+# Local email testing server: auth emails (password reset) are captured, never sent.
+[local_smtp]
+enabled = true
+port = 54324
+
+# Photos are not used by the v0.1 UI.
+[storage]
+enabled = false
+
+[auth]
+enabled = true
+# The Angular dev server.
+site_url = "http://localhost:4200"
+additional_redirect_urls = ["http://127.0.0.1:4200"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+# Invite-only (spec 10): nobody can sign themselves up. The admin user is created in Studio
+# (the dashboard on hosted), then bootstrapped into the network by scripts/bootstrap_admin.py.
+enable_signup = false
+enable_anonymous_sign_ins = false
+enable_manual_linking = false
+minimum_password_length = 6
+password_requirements = ""
+
+[auth.rate_limit]
+email_sent = 2
+sms_sent = 30
+anonymous_users = 30
+token_refresh = 150
+sign_in_sign_ups = 30
+token_verifications = 30
+web3 = 30
+
+[auth.email]
+enable_signup = false
+double_confirm_changes = true
+enable_confirmations = false
+secure_password_change = false
+max_frequency = "1s"
+otp_length = 6
+otp_expiry = 3600
+
+[auth.sms]
+enable_signup = false
+enable_confirmations = false
+template = "Your code is {{ .Code }}"
+max_frequency = "5s"
+
+# Stamps network_id, member_role and person_id into every access token from the caller's active
+# member row (migration 20261119000004). Row-level security reads them straight from the JWT, so
+# without this hook every network-scoped query returns zero rows: the product looks empty rather
+# than broken.
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"
+
+[auth.mfa]
+max_enrolled_factors = 10
+
+# Admin endpoints require aal2 (spec 10): TOTP enrolment and verification must be on.
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.mfa.phone]
+enroll_enabled = false
+verify_enabled = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false

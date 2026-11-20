@@ -91,6 +91,14 @@ interface Option<T extends string> {
   labelKey: string;
 }
 
+/** The i18n key for one value of a value set, for showing a stored value as text. */
+export function labelKeyOf<T extends string>(
+  options: readonly { value: T; labelKey: string }[],
+  value: T,
+): string {
+  return options.find((option) => option.value === value)?.labelKey ?? '';
+}
+
 export const STRENGTH_OPTIONS: readonly Option<Strength>[] = [
   { value: 'strong', labelKey: 'person.strength.strong' },
   { value: 'normal', labelKey: 'person.strength.normal' },

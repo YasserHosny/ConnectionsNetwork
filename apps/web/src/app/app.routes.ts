@@ -10,7 +10,7 @@ const placeholder = (titleKey: string) => ({
 
 /**
  * One pathless parent carries `mfaGuard`, so it judges every navigation: it lets /login, /mfa
- * and /c through and sends the rest to sign-in or MFA. Later tasks replace the placeholders.
+ * and /c through and sends the rest to sign-in or MFA. Later tasks replace the remaining placeholders.
  */
 export const routes: Routes = [
   {
@@ -36,7 +36,10 @@ export const routes: Routes = [
         loadComponent: () => import('./layout/shell.component').then((m) => m.ShellComponent),
         children: [
           { path: '', pathMatch: 'full', redirectTo: 'search' },
-          { path: 'search', ...placeholder('pages.search.title') },
+          {
+            path: 'search',
+            loadComponent: () => import('./features/search/search.page').then((m) => m.SearchPage),
+          },
           {
             path: 'add',
             loadComponent: () =>
@@ -47,8 +50,10 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./features/people/edit-person.page').then((m) => m.EditPersonPage),
           },
-          // The person page is Task 14; saving a person already navigates here.
-          { path: 'people/:id', ...placeholder('pages.person.title') },
+          {
+            path: 'people/:id',
+            loadComponent: () => import('./features/people/person.page').then((m) => m.PersonPage),
+          },
           { path: 'review', ...placeholder('pages.review.title') },
           { path: 'links', ...placeholder('pages.links.title') },
           { path: 'export', ...placeholder('pages.export.title') },

@@ -146,6 +146,33 @@
     "edit": {
       "loadFailed": "Could not load this person."
     },
+    "stale": "Not confirmed for over a year",
+    "lastConfirmed": "Last confirmed {{when}}",
+    "view": {
+      "loadFailed": "Could not load this person.",
+      "edit": "Edit",
+      "confirm": "Confirm details are still correct",
+      "confirming": "Confirming…",
+      "confirmed": "Marked as confirmed today.",
+      "delete": "Delete",
+      "deleting": "Deleting…",
+      "connections": "Connections",
+      "noConnections": "No connections yet.",
+      "pathTitle": "Your path to this person",
+      "isYou": "This is you.",
+      "noPath": "Not connected to you.",
+      "pathsFailed": "Could not load the paths.",
+      "alternatives": "Other paths",
+      "hideAlternatives": "Hide other paths",
+      "noAlternatives": "No other paths.",
+      "noContacts": "No contact details are saved for this person.",
+      "deleteDialog": {
+        "title": "Delete {{name}}?",
+        "body": "This removes the person, their contact details and all their connections. It cannot be undone.",
+        "cancel": "Cancel",
+        "confirm": "Delete"
+      }
+    },
     "errors": {
       "savedOnDevice": "Could not reach the server. Your entry is kept on this device; try again when you are back online.",
       "generic": "Could not save. Try again.",
@@ -157,7 +184,48 @@
       "alreadyConnected": "These two people are already connected.",
       "notFound": "This person was not found.",
       "sessionEnded": "Your session ended. Sign in again.",
-      "forbidden": "You are not allowed to do this."
+      "forbidden": "You are not allowed to do this.",
+      "unreachable": "Could not reach the server. Try again.",
+      "cannotDeleteSelf": "You cannot delete your own profile."
+    }
+  },
+  "search": {
+    "queryLabel": "Name, skill or profession",
+    "submit": "Search",
+    "searching": "Searching…",
+    "clear": "Clear",
+    "filtersTitle": "Filters",
+    "filters": {
+      "category": "Skill category",
+      "minLevel": "Minimum level",
+      "industry": "Industry",
+      "seniority": "Seniority",
+      "availableFor": "Available for",
+      "city": "City",
+      "any": "Any"
+    },
+    "idle": "Type a name, a skill or a profession, or choose a filter, to search your network.",
+    "contactHint": "Phone numbers and email addresses cannot be searched. Search by name, skill or profession.",
+    "resultsCount": "Results: {{count}}",
+    "noResults": "No one matches this search.",
+    "notConnected": "Not connected to you",
+    "availableFor": "Available for:",
+    "path": {
+      "you": "You",
+      "steps": "Steps: {{count}}",
+      "label": "Path from you to {{name}}"
+    },
+    "askIntro": "Ask {{name}} for an intro",
+    "contactDirectly": "Contact directly",
+    "hideContacts": "Hide contact details",
+    "intro": {
+      "ask": "Hi {{firstHop}}, do you know someone who can introduce me to {{target}}?",
+      "knows": "{{knower}} knows {{target}}.",
+      "copied": "The message was copied. Paste it into a chat with {{name}}.",
+      "copyFailed": "Could not copy automatically. Select the text below and copy it.",
+      "openWhatsapp": "Open WhatsApp",
+      "whatsappBlocked": "The browser blocked WhatsApp from opening. Use the button below.",
+      "textLabel": "Message to {{name}}"
     }
   },
   "contribute": {

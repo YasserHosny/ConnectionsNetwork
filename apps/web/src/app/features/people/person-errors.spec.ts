@@ -1,5 +1,5 @@
 import { ApiError } from '../../core/api.client';
-import { isRetryable, personErrorMessage } from './person-errors';
+import { actionErrorKey, isMfaRequired, isRetryable, personErrorMessage } from './person-errors';
 
 describe('personErrorMessage', () => {
   it('treats an unanswered request and a server error as retryable, nothing else', () => {
@@ -55,5 +55,28 @@ describe('personErrorMessage', () => {
     const message = personErrorMessage(new ApiError('weird', 'English API text', 418));
 
     expect(message.key).toBe('person.errors.generic');
+  });
+});
+
+describe('actionErrorKey', () => {
+  it('says the server could not be reached for a network or server failure', () => {
+    expect(actionErrorKey(new ApiError('network_error', 'x', 0))).toBe('person.errors.unreachable');
+    expect(actionErrorKey(new ApiError('internal_error', 'x', 500))).toBe('person.errors.unreachable');
+  });
+
+  it('maps the delete-self conflict, a missing person and the auth statuses', () => {
+    expect(actionErrorKey(new ApiError('cannot_delete_self', 'x', 409))).toBe('person.errors.cannotDeleteSelf');
+    expect(actionErrorKey(new ApiError('not_found', 'x', 404))).toBe('person.errors.notFound');
+    expect(actionErrorKey(new ApiError('auth.unauthenticated', 'x', 401))).toBe('person.errors.sessionEnded');
+    expect(actionErrorKey(new ApiError('auth.forbidden', 'x', 403))).toBe('person.errors.forbidden');
+  });
+
+  it('falls back to a generic message, never the API text', () => {
+    expect(actionErrorKey(new ApiError('weird', 'English API text', 418))).toBe('person.errors.generic');
+  });
+
+  it('recognises a lapsed MFA step', () => {
+    expect(isMfaRequired(new ApiError('mfa_required', 'x', 403))).toBeTrue();
+    expect(isMfaRequired(new ApiError('auth.forbidden', 'x', 403))).toBeFalse();
   });
 });

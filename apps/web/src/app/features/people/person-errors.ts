@@ -87,3 +87,26 @@ export function personErrorMessage(error: ApiError): PersonErrorMessage {
       return message('person.errors.generic');
   }
 }
+
+/** The admin has signed in but not completed TOTP this session: send them to /mfa. */
+export function isMfaRequired(error: ApiError): boolean {
+  return error.code === 'mfa_required';
+}
+
+/**
+ * The i18n key for a failed read or action that saves nothing (search, loading a person, confirm,
+ * delete). Unlike `personErrorMessage` it never promises a draft on the device. Never the API text.
+ */
+export function actionErrorKey(error: ApiError): string {
+  if (isRetryable(error)) return 'person.errors.unreachable';
+  switch (error.code) {
+    case 'cannot_delete_self':
+      return 'person.errors.cannotDeleteSelf';
+    case 'not_found':
+      return 'person.errors.notFound';
+    default:
+      if (error.status === 401) return 'person.errors.sessionEnded';
+      if (error.status === 403) return 'person.errors.forbidden';
+      return 'person.errors.generic';
+  }
+}

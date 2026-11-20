@@ -635,11 +635,10 @@ export class PersonFormComponent implements OnInit {
     // Keep the entry for a network or server failure (nothing about the data was refused), and
     // when the session ended or its MFA step lapsed: ApiClient sends the admin to /login or /mfa,
     // and they must find their input on return. Any other rejection (a 4xx about the data) never
-    // saves a draft.
+    // saves a draft. The message is shown either way (it says why, until the page moves on).
     const sessionEnded = apiError.code === 'mfa_required' || apiError.status === 401;
     const message = personErrorMessage(apiError);
     if (message.retryable || sessionEnded) this.saveDraft(value, idempotencyKey);
-    if (sessionEnded) return;
     this.error.set(message);
     this.cdr.markForCheck();
   }

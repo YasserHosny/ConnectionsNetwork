@@ -196,6 +196,8 @@ describe('PersonFormComponent', () => {
 
       expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
       expect(drafts.load<PersonFormValue>('add-person')?.strength).toBe('weak');
+      // Said in words too, in case nothing moves the page (a session without its person claim).
+      expect(alertText()).toMatch(/session ended|authenticator app/);
     });
   }
 

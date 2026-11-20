@@ -7,7 +7,9 @@ obviously-fake local values; nothing here is a real credential.
 
 from __future__ import annotations
 
+import logging
 import os
+from collections.abc import Iterator
 
 import pytest
 
@@ -39,3 +41,41 @@ def _test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Re-assert the environment per test, so one test cannot leak config into the next."""
     for key, value in TEST_ENV.items():
         monkeypatch.setenv(key, value)
+
+
+_UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+
+
+def _is_pytest_handler(handler: logging.Handler) -> bool:
+    # pytest adds and removes its own capture handlers around each phase; never restore those.
+    return type(handler).__module__.startswith("_pytest")
+
+
+@pytest.fixture(autouse=True)
+def _restore_logging_state() -> Iterator[None]:
+    """configure_logging() rewires process-global logging; undo it after every test.
+
+    Without this, a test that calls it leaves the root handler bound to that test's (later
+    closed) captured stream, and every following test that logs emits "I/O operation on closed
+    file" errors, making the suite order-dependent.
+    """
+    root = logging.getLogger()
+    root_handlers = list(root.handlers)
+    root_level = root.level
+    uvicorn_state = {
+        name: (list(logging.getLogger(name).handlers), logging.getLogger(name).propagate)
+        for name in _UVICORN_LOGGERS
+    }
+    yield
+    for handler in list(root.handlers):
+        if handler not in root_handlers:
+            root.removeHandler(handler)
+    for handler in root_handlers:
+        if handler not in root.handlers and not _is_pytest_handler(handler):
+            root.addHandler(handler)
+    root.setLevel(root_level)
+    for name, (handlers, propagate) in uvicorn_state.items():
+        logger = logging.getLogger(name)
+        logger.handlers[:] = handlers
+        logger.propagate = propagate
+    logging.captureWarnings(False)

@@ -7,15 +7,20 @@ import type { ContributeResponse } from '@connections/domain-types';
 import { type Observable, tap } from 'rxjs';
 
 import { toApiError } from '../../core/api.client';
+import { IsolatePipe } from '../../core/bidi';
 import { DraftStore } from '../../core/draft.store';
 import { LocaleService } from '../../core/locale.service';
 import { LanguageSwitchComponent } from '../../layout/language-switch.component';
 import { PersonFormComponent } from '../people/person-form.component';
 import type { PersonFormValue, TagSuggest } from '../people/person-form.model';
-import { ContributeApi, isLinkInvalid, isRateLimited, takeTokenFromLocation } from './contribute-api';
+import { ContributeApi, forgetToken, isLinkInvalid, isRateLimited, takeToken } from './contribute-api';
 
-/** Where a contributor's unsent entry is kept: one slot, dropped as soon as the link is dead. */
+/**
+ * Where a contributor's unsent entry is kept: one slot, dropped as soon as the link is dead,
+ * when another contributor's link opens on this device, or after a week.
+ */
 const DRAFT_KEY = 'contribute';
+const DRAFT_MAX_AGE_DAYS = 7;
 
 /** What was submitted from this page, as the session list shows it. Memory only. */
 interface AddedPerson {
@@ -23,21 +28,22 @@ interface AddedPerson {
   profession: string;
 }
 
-type Phase = 'loading' | 'ready' | 'expired' | 'failed';
+type Phase = 'loading' | 'ready' | 'expired' | 'noToken' | 'failed';
 
 /**
  * The public contributor page (spec 8.2): a contact opens `/c#<token>` from a WhatsApp link, with
  * no account, and adds people they know one after another. Each is connected to them.
  *
  * It stands outside the admin shell and never touches the sign-in session. The token is read from
- * the URL fragment, kept in memory and removed from the address bar and from the router's state
- * before the first request.
+ * the URL fragment and removed from the address bar and from the router's state before the first
+ * request; it is kept for this tab (sessionStorage) so a reload still works, and forgotten as soon
+ * as the server says the link is dead.
  * What the contributor added in this visit is listed from memory: nothing is read back from the
  * server, and a reload starts empty.
  */
 @Component({
   selector: 'app-contribute',
-  imports: [MatButtonModule, TranslatePipe, LanguageSwitchComponent, PersonFormComponent],
+  imports: [MatButtonModule, TranslatePipe, IsolatePipe, LanguageSwitchComponent, PersonFormComponent],
   providers: [ContributeApi],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -53,6 +59,9 @@ type Phase = 'loading' | 'ready' | 'expired' | 'failed';
         @case ('expired') {
           <p class="expired" role="alert">{{ 'contribute.expired' | translate }}</p>
         }
+        @case ('noToken') {
+          <p class="expired" role="alert">{{ 'contribute.noToken' | translate }}</p>
+        }
         @case ('failed') {
           <div class="failed" role="alert">
             <p>{{ failureKey() | translate }}</p>
@@ -62,12 +71,12 @@ type Phase = 'loading' | 'ready' | 'expired' | 'failed';
           </div>
         }
         @case ('ready') {
-          <h1>{{ 'contribute.greeting' | translate: { name: contributorName() } }}</h1>
+          <h1>{{ 'contribute.greeting' | translate: { name: (contributorName() | isolate) } }}</h1>
           <p class="intro">{{ 'contribute.intro' | translate }}</p>
 
           @if (justAdded(); as name) {
             <section class="added">
-              <p class="thanks" role="status">{{ 'contribute.added' | translate: { name } }}</p>
+              <p class="thanks" role="status">{{ 'contribute.added' | translate: { name: (name | isolate) } }}</p>
               <button mat-flat-button type="button" class="add-another" (click)="justAdded.set(null)">
                 {{ 'contribute.addAnother' | translate }}
               </button>
@@ -77,6 +86,8 @@ type Phase = 'loading' | 'ready' | 'expired' | 'failed';
             <app-person-form
               [contributor]="true"
               [draftKey]="draftKey"
+              [draftOwner]="contributorName()"
+              [draftMaxAgeDays]="draftMaxAgeDays"
               [suggestSource]="suggest"
               [submitter]="submit"
               (saved)="onSaved()"
@@ -184,6 +195,7 @@ export class ContributePage implements OnInit {
   private readonly router = inject(Router);
 
   protected readonly draftKey = DRAFT_KEY;
+  protected readonly draftMaxAgeDays = DRAFT_MAX_AGE_DAYS;
   protected readonly phase = signal<Phase>('loading');
   protected readonly failureKey = signal('person.errors.unreachable');
   protected readonly contributorName = signal('');
@@ -193,12 +205,13 @@ export class ContributePage implements OnInit {
 
   ngOnInit(): void {
     // Before any request: the token leaves the address bar first.
-    const token = takeTokenFromLocation();
-    this.api.setToken(token);
+    const lookup = takeToken();
+    this.api.setToken(lookup.token);
     this.dropFragmentFromRouter();
-    if (!token) {
-      // No token to try: say what the server would. A draft stays, for the next time the link is opened.
-      this.phase.set('expired');
+    if (lookup.token === null) {
+      // Nothing to try. No link at all: ask for the link from the message. Text that cannot be a
+      // token: say what the server would. A draft stays, for the next time the link is opened.
+      this.phase.set(lookup.reason === 'missing' ? 'noToken' : 'expired');
       return;
     }
     this.load();
@@ -220,8 +233,8 @@ export class ContributePage implements OnInit {
 
   protected readonly suggest: TagSuggest = (kind, q) => this.api.tags(kind, q);
 
-  protected readonly submit = (value: PersonFormValue): Observable<ContributeResponse> =>
-    this.api.addPerson(value).pipe(
+  protected readonly submit = (value: PersonFormValue, idempotencyKey: string): Observable<ContributeResponse> =>
+    this.api.addPerson(value, idempotencyKey).pipe(
       tap({
         next: () => this.record(value),
         error: (failure: unknown) => {
@@ -267,8 +280,9 @@ export class ContributePage implements OnInit {
     }
   }
 
-  /** The link no longer works: what was typed under it must not outlive it. */
+  /** The link no longer works: what was typed under it, and its token, must not outlive it. */
   private linkEnded(): void {
+    forgetToken();
     this.drafts.clear(DRAFT_KEY);
     this.phase.set('expired');
   }

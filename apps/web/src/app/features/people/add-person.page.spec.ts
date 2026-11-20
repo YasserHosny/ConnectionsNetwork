@@ -96,6 +96,23 @@ describe('AddPersonPage', () => {
     expect(navigate).toHaveBeenCalledWith('/people/new-1');
   });
 
+  it('retries a failed save with the same Idempotency-Key, so the person is created once', async () => {
+    open();
+
+    fillAndSubmit();
+    const first = http.expectOne('/api/v1/people');
+    const key = first.request.headers.get('Idempotency-Key');
+    expect(key).toBeTruthy();
+    first.error(new ProgressEvent('error'));
+    await settle();
+
+    (el().querySelector('button.retry') as HTMLButtonElement).click();
+    const retry = http.expectOne('/api/v1/people');
+    expect(retry.request.headers.get('Idempotency-Key')).toBe(key);
+    retry.flush(createdPerson('new-1'));
+    await settle();
+  });
+
   it('keeps the draft when the save fails', async () => {
     open();
 

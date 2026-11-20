@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
 
 import { fakeAuthService, fakeSession } from '../testing/test-helpers';
 import { ApiClient, ApiError } from './api.client';
@@ -10,6 +11,7 @@ describe('ApiClient', () => {
   let api: ApiClient;
   let http: HttpTestingController;
   let auth: ReturnType<typeof fakeAuthService>;
+  let navigate: jasmine.Spy;
 
   beforeEach(() => {
     auth = fakeAuthService(fakeSession('aal2'));
@@ -22,6 +24,7 @@ describe('ApiClient', () => {
     });
     api = TestBed.inject(ApiClient);
     http = TestBed.inject(HttpTestingController);
+    navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
   });
 
   afterEach(() => http.verify());
@@ -75,6 +78,99 @@ describe('ApiClient', () => {
     expect(req.request.params.has('city')).toBeFalse();
     expect(req.request.params.has('industry')).toBeFalse();
     req.flush([]);
+  });
+
+  describe('contact values never reach a URL', () => {
+    it('refuses a request whose parameter contains a phone number, and says why', () => {
+      let error: unknown;
+      api.get('/search', { q: 'Sara 01012345678', limit: 8 }).subscribe({ error: (e) => (error = e) });
+
+      http.expectNone(() => true);
+      expect(error).toEqual(
+        jasmine.objectContaining({ code: 'contact_in_query', details: { fields: ['q'] } }),
+      );
+    });
+
+    it('refuses an email address in any parameter, repeated ones included', () => {
+      let error: unknown;
+      api.get('/search', { q: 'marketing', city: ['Cairo', 'sara@example.com'] }).subscribe({
+        error: (e) => (error = e),
+      });
+
+      http.expectNone(() => true);
+      expect(error).toEqual(jasmine.objectContaining({ code: 'contact_in_query', details: { fields: ['city'] } }));
+    });
+
+    it('refuses a download the same way', async () => {
+      await expectAsync(api.download('/export', { format: '٠١٠١٢٣٤٥٦٧٨' })).toBeRejectedWith(
+        jasmine.objectContaining({ code: 'contact_in_query' }),
+      );
+      http.expectNone(() => true);
+    });
+
+    it('sends ordinary text, short numbers included', () => {
+      api.get('/search', { q: 'marketing 2024', limit: 50 }).subscribe();
+
+      expect(http.expectOne((r) => r.url === '/api/v1/search').request.params.get('q')).toBe('marketing 2024');
+    });
+  });
+
+  it('sends an Idempotency-Key when asked to', () => {
+    api.post('/people', { a: 1 }, { idempotencyKey: 'key-1' }).subscribe();
+    api.post('/people', { a: 2 }).subscribe();
+
+    const [withKey, without] = http.match((r) => r.method === 'POST');
+    expect(withKey.request.headers.get('Idempotency-Key')).toBe('key-1');
+    expect(without.request.headers.has('Idempotency-Key')).toBeFalse();
+    [withKey, without].forEach((r) => r.flush({}));
+  });
+
+  describe('an ended session, handled in one place', () => {
+    const envelope = (code: string) => ({ code, message: 'x', details: null, trace_id: 't' });
+
+    it('signs out locally and goes to /login on a 401, and still reports the error', async () => {
+      let error: unknown;
+      api.get('/people/1').subscribe({ error: (e) => (error = e) });
+
+      http.expectOne('/api/v1/people/1').flush(envelope('auth.unauthenticated'), { status: 401, statusText: 'x' });
+      await Promise.resolve();
+
+      expect(error).toEqual(jasmine.objectContaining({ status: 401 }));
+      expect(auth.signOut).toHaveBeenCalledWith({ keepDrafts: true });
+      await auth.signOut.calls.mostRecent().returnValue;
+      expect(navigate).toHaveBeenCalledWith('/login');
+    });
+
+    it('goes to /mfa when the second step has lapsed, without signing out', () => {
+      let error: unknown;
+      api.post('/connections', {}).subscribe({ error: (e) => (error = e) });
+
+      http.expectOne('/api/v1/connections').flush(envelope('mfa_required'), { status: 403, statusText: 'x' });
+
+      expect(error).toEqual(jasmine.objectContaining({ code: 'mfa_required' }));
+      expect(navigate).toHaveBeenCalledWith('/mfa');
+      expect(auth.signOut).not.toHaveBeenCalled();
+    });
+
+    it('does the same for a download', async () => {
+      const result = api.download('/export');
+
+      http
+        .expectOne('/api/v1/export')
+        .flush(new Blob([JSON.stringify(envelope('mfa_required'))]), { status: 403, statusText: 'x' });
+
+      await expectAsync(result).toBeRejected();
+      expect(navigate).toHaveBeenCalledWith('/mfa');
+    });
+
+    it('leaves any other failure to the page', () => {
+      api.get('/x').subscribe({ error: () => undefined });
+
+      http.expectOne('/api/v1/x').flush(envelope('not_found'), { status: 404, statusText: 'x' });
+
+      expect(navigate).not.toHaveBeenCalled();
+      expect(auth.signOut).not.toHaveBeenCalled();
+    });
   });
 
   describe('download', () => {

@@ -191,6 +191,17 @@ describe('SearchPage', () => {
     expect(router.url).toBe('/search');
   });
 
+  it('does not search for a name with a phone number in it', async () => {
+    await open();
+    type('input[name=q]', 'Sara 01012345678');
+    submit();
+    await settle();
+
+    expect(searchRequests().length).toBe(0);
+    expect(el().querySelector('.contact-hint')).not.toBeNull();
+    expect(router.url).toBe('/search');
+  });
+
   it('does not search for an email address either', async () => {
     await open();
     type('input[name=q]', 'sara@example.com');

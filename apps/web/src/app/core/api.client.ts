@@ -1,10 +1,12 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
+import { Router } from '@angular/router';
 import type { ErrorEnvelope } from '@connections/domain-types';
 import { Observable, catchError, firstValueFrom, throwError } from 'rxjs';
 
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
+import { containsContactValue } from './contact-value';
 
 export type QueryValue = string | number | boolean | null | undefined;
 export type QueryParams = Record<string, QueryValue | readonly QueryValue[]>;
@@ -93,15 +95,44 @@ async function toDownloadError(error: unknown): Promise<ApiError> {
   return toApiError(error);
 }
 
-function toHttpParams(params: QueryParams | undefined): HttpParams {
+/** The code of a request refused before it was sent: a parameter looked like a contact value. */
+export const CONTACT_IN_QUERY = 'contact_in_query';
+
+/**
+ * The query string for `params`, or the names of the parameters that contain a contact value
+ * (an email address or a phone number: `containsContactValue`). Such a request is never sent.
+ */
+function toHttpParams(params: QueryParams | undefined): { params: HttpParams; refused: string[] } {
   let result = new HttpParams();
+  const refused: string[] = [];
   for (const [key, value] of Object.entries(params ?? {})) {
     const values = Array.isArray(value) ? value : [value];
     for (const item of values as readonly QueryValue[]) {
-      if (item !== null && item !== undefined && item !== '') result = result.append(key, String(item));
+      if (item === null || item === undefined || item === '') continue;
+      const text = String(item);
+      if (containsContactValue(text)) {
+        if (!refused.includes(key)) refused.push(key);
+      } else {
+        result = result.append(key, text);
+      }
     }
   }
-  return result;
+  return { params: result, refused };
+}
+
+function contactInQuery(fields: string[]): ApiError {
+  return new ApiError(
+    CONTACT_IN_QUERY,
+    'A query parameter contained a contact value, so the request was not sent.',
+    400,
+    { fields },
+  );
+}
+
+/** Options of a write. */
+export interface WriteOptions {
+  /** Sent as `Idempotency-Key`: the same key on every retry of one submission (spec 11.1). */
+  idempotencyKey?: string;
 }
 
 /**
@@ -109,19 +140,25 @@ function toHttpParams(params: QueryParams | undefined): HttpParams {
  * error envelope into an `ApiError(code, message)`.
  *
  * Contact values (phone, WhatsApp, email) belong in request bodies, never in `path` or `params`:
- * URLs end up in proxy and server logs.
+ * URLs end up in proxy and server logs. A parameter that contains one is refused here, before
+ * anything is sent: the call fails with `ApiError(CONTACT_IN_QUERY)`, details `{ fields }`.
+ *
+ * An ended session is handled here, for every page: a 401 signs out on this device (keeping any
+ * draft, so the admin finds it after signing back in) and goes to /login; `mfa_required` goes to
+ * /mfa. The error is still passed on, so the page can stop what it was doing (or keep a draft).
  */
 @Injectable({ providedIn: 'root' })
 export class ApiClient {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
 
   get<T>(path: string, params?: QueryParams): Observable<T> {
     return this.request<T>('GET', path, undefined, params);
   }
 
-  post<T>(path: string, body?: unknown): Observable<T> {
-    return this.request<T>('POST', path, body);
+  post<T>(path: string, body?: unknown, options: WriteOptions = {}): Observable<T> {
+    return this.request<T>('POST', path, body, undefined, options);
   }
 
   put<T>(path: string, body?: unknown): Observable<T> {
@@ -141,10 +178,12 @@ export class ApiClient {
    * an `ApiError` like the other calls. Query parameters only: no contact values (see above).
    */
   async download(path: string, params?: QueryParams): Promise<DownloadedFile> {
+    const query = toHttpParams(params);
+    if (query.refused.length) throw contactInQuery(query.refused);
     try {
       const response = await firstValueFrom(
         this.http.get(`${environment.apiBaseUrl}${path}`, {
-          params: toHttpParams(params),
+          params: query.params,
           headers: this.headers(),
           observe: 'response',
           responseType: 'blob',
@@ -155,7 +194,7 @@ export class ApiClient {
         filename: filenameFromDisposition(response.headers.get('Content-Disposition')),
       };
     } catch (error) {
-      throw await toDownloadError(error);
+      throw this.handled(await toDownloadError(error));
     }
   }
 
@@ -164,14 +203,25 @@ export class ApiClient {
     path: string,
     body?: unknown,
     params?: QueryParams,
+    options: WriteOptions = {},
   ): Observable<T> {
+    const query = toHttpParams(params);
+    if (query.refused.length) return throwError(() => contactInQuery(query.refused));
+    const headers = this.headers();
+    if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
     return this.http
-      .request<T>(method, `${environment.apiBaseUrl}${path}`, {
-        body,
-        params: toHttpParams(params),
-        headers: this.headers(),
-      })
-      .pipe(catchError((error: unknown) => throwError(() => toApiError(error))));
+      .request<T>(method, `${environment.apiBaseUrl}${path}`, { body, params: query.params, headers })
+      .pipe(catchError((error: unknown) => throwError(() => this.handled(toApiError(error)))));
+  }
+
+  /** Sends the admin where an ended session or a lapsed MFA step must go; returns the error. */
+  private handled(error: ApiError): ApiError {
+    if (error.code === 'mfa_required') {
+      void this.router.navigateByUrl('/mfa');
+    } else if (error.status === 401) {
+      void this.auth.signOut({ keepDrafts: true }).then(() => this.router.navigateByUrl('/login'));
+    }
+    return error;
   }
 
   private headers(): Record<string, string> {

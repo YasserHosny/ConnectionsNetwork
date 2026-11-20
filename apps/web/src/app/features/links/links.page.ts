@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type { CreateLinkRequest, IssuedLink, LinkOut } from '@connections/domain-types';
 
@@ -9,7 +9,7 @@ import { ApiClient, toApiError } from '../../core/api.client';
 import { formatDate } from '../../core/format-date';
 import { LocaleService } from '../../core/locale.service';
 import { ConfirmDialog, type ConfirmDialogData } from '../../layout/confirm.dialog';
-import { actionErrorKey, isMfaRequired } from '../people/person-errors';
+import { actionErrorKey } from '../people/person-errors';
 import type { ConnectTarget } from '../people/person-form.model';
 import { PersonPickerComponent } from '../people/person-picker.component';
 import { LinkIssuedDialog, type LinkIssuedDialogData } from './link-issued.dialog';
@@ -229,7 +229,6 @@ const DATE_KEYS: Record<LinkStatus, string> = {
 export class LinksPage {
   private readonly api = inject(ApiClient);
   private readonly dialog = inject(MatDialog);
-  private readonly router = inject(Router);
   private readonly locale = inject(LocaleService);
 
   protected readonly state = signal<LoadState>('loading');
@@ -340,10 +339,6 @@ export class LinksPage {
   private fail(failure: unknown, refreshList: boolean): void {
     const error = toApiError(failure);
     this.busy.set(null);
-    if (isMfaRequired(error)) {
-      void this.router.navigateByUrl('/mfa');
-      return;
-    }
     this.error.set(actionErrorKey(error, 'links.errors.notFound'));
     // The link was revoked or deleted elsewhere: show what is true now.
     if (refreshList && (error.code === 'link_revoked' || error.code === 'not_found')) this.fetch();
@@ -357,10 +352,7 @@ export class LinksPage {
         this.links.set(links);
         this.state.set('ready');
       },
-      error: (failure: unknown) => {
-        if (isMfaRequired(toApiError(failure))) void this.router.navigateByUrl('/mfa');
-        this.state.set('failed');
-      },
+      error: () => this.state.set('failed'),
     });
   }
 }

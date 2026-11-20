@@ -1,13 +1,12 @@
 import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { Router } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type { ExportFormat } from '@connections/domain-types';
 
 import { ApiClient, toApiError } from '../../core/api.client';
 import { saveBlob } from '../../core/file-download';
-import { actionErrorKey, isMfaRequired } from '../people/person-errors';
+import { actionErrorKey } from '../people/person-errors';
 
 /**
  * Export (spec 9): everything in the network, whenever the admin wants it. JSON is the full
@@ -94,7 +93,6 @@ import { actionErrorKey, isMfaRequired } from '../people/person-errors';
 })
 export class ExportPage {
   private readonly api = inject(ApiClient);
-  private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
 
   protected readonly busy = signal<ExportFormat | null>(null);
@@ -110,9 +108,7 @@ export class ExportPage {
       saveBlob(this.document, file.blob, file.filename);
       this.downloaded.set(file.filename);
     } catch (failure) {
-      const error = toApiError(failure);
-      if (isMfaRequired(error)) void this.router.navigateByUrl('/mfa');
-      else this.error.set(actionErrorKey(error));
+      this.error.set(actionErrorKey(toApiError(failure)));
     } finally {
       this.busy.set(null);
     }

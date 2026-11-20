@@ -54,6 +54,26 @@ describe('ShellComponent', () => {
     expect(button.textContent).toContain('العربية');
   });
 
+  it('goes to /login when the session ends while a page is open', async () => {
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+
+    auth.current.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(navigate).toHaveBeenCalledWith('/login');
+  });
+
+  it('stays while the session lasts (a refreshed token is still a session)', async () => {
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+
+    auth.current.set(fakeSession('aal2'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('signs out and returns to /login', async () => {
     const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
     const signOut = Array.from(el().querySelectorAll('mat-toolbar button')).find((b) =>

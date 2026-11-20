@@ -16,6 +16,7 @@ import type { SearchResult } from '@connections/domain-types';
 import { type Observable, Subject, catchError, debounceTime, map, of, switchMap } from 'rxjs';
 
 import { ApiClient } from '../../core/api.client';
+import { containsContactValue } from '../../core/contact-value';
 import type { ConnectTarget } from './person-form.model';
 
 const SEARCH_DELAY_MS = 300;
@@ -59,7 +60,9 @@ interface Outcome {
         <input matInput type="search" autocomplete="off" [value]="query()" (input)="onInput($event)" />
       </mat-form-field>
 
-      @if (failed()) {
+      @if (contactHint()) {
+        <p class="contact-hint hint" role="status">{{ 'search.contactHint' | translate }}</p>
+      } @else if (failed()) {
         <p class="error" role="alert">{{ 'person.connectTo.searchFailed' | translate }}</p>
       } @else if (results().length) {
         <ul class="results">
@@ -147,6 +150,8 @@ export class PersonPickerComponent {
   protected readonly results = signal<SearchResult[]>([]);
   protected readonly failed = signal(false);
   protected readonly noResults = signal(false);
+  /** The text holds a phone number or an email: it is not searched (it would go into the URL). */
+  protected readonly contactHint = signal(false);
   private readonly queries = new Subject<string>();
 
   constructor() {
@@ -155,7 +160,7 @@ export class PersonPickerComponent {
         debounceTime(SEARCH_DELAY_MS),
         switchMap((q): Observable<Outcome | null> => {
           const text = q.trim();
-          if (text.length < MIN_QUERY_LENGTH) return of(null);
+          if (text.length < MIN_QUERY_LENGTH || containsContactValue(text)) return of(null);
           return this.api.get<SearchResult[]>('/search', { q: text, limit: MAX_RESULTS }).pipe(
             map((results) => ({ results, failed: false })),
             catchError(() => of({ results: [], failed: true })),
@@ -175,6 +180,7 @@ export class PersonPickerComponent {
     this.query.set(text);
     this.noResults.set(false);
     this.failed.set(false);
+    this.contactHint.set(containsContactValue(text));
     this.queries.next(text);
   }
 
@@ -196,5 +202,6 @@ export class PersonPickerComponent {
     this.query.set('');
     this.results.set([]);
     this.noResults.set(false);
+    this.contactHint.set(false);
   }
 }

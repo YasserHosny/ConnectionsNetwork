@@ -132,4 +132,66 @@ describe('TagInputComponent', () => {
     expect((el().querySelector('select.category') as HTMLSelectElement).value).toBe('technical');
     expect(input().value).toBe('Python');
   }));
+
+  it('adds a picked suggestion that carries its category at once', fakeAsync(() => {
+    suggest.and.returnValue(of([{ label: 'Python', category: 'technical' }]));
+    create('skill');
+    typeText('Pyt');
+    tick(300);
+
+    fixture.componentInstance['onOptionSelected']('Python');
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.value()).toEqual([{ label: 'Python', category: 'technical', level: null }]);
+    expect(input().value).toBe('');
+  }));
+
+  it('adds a picked industry suggestion at once', fakeAsync(() => {
+    suggest.and.returnValue(of([{ label: 'Banking', category: null }]));
+    create('industry');
+    typeText('Ban');
+    tick(300);
+
+    fixture.componentInstance['onOptionSelected']('Banking');
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.value()).toEqual([{ label: 'Banking', category: null, level: null }]);
+  }));
+
+  describe('commitPending (the form calls it on save)', () => {
+    it('has nothing to do when nothing is typed', () => {
+      create('skill');
+
+      expect(fixture.componentInstance.commitPending()).toBeNull();
+      expect(fixture.componentInstance.value()).toEqual([]);
+    });
+
+    it('adds a typed industry', () => {
+      create('industry');
+      typeText('Banking');
+
+      expect(fixture.componentInstance.commitPending()).toBeNull();
+      expect(fixture.componentInstance.value()).toEqual([{ label: 'Banking', category: null, level: null }]);
+    });
+
+    it('adds a typed skill whose category is chosen', () => {
+      create('skill');
+      typeText('Python');
+      chooseCategory('technical');
+
+      expect(fixture.componentInstance.commitPending()).toBeNull();
+      expect(fixture.componentInstance.value()).toEqual([{ label: 'Python', category: 'technical', level: null }]);
+    });
+
+    it('reports a typed skill it cannot add (no category), and asks for the category', () => {
+      create('skill');
+      typeText('  Python ');
+
+      expect(fixture.componentInstance.commitPending()).toBe('Python');
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.value()).toEqual([]);
+      expect(el().querySelector('[role=alert]')?.textContent).toContain('Choose a category');
+    });
+  });
 });

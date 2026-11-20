@@ -2,14 +2,13 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatRadioModule } from '@angular/material/radio';
-import { Router } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type { ConnectionIn, Strength } from '@connections/domain-types';
 
 import { ApiClient, toApiError } from '../../core/api.client';
 import { AuthService } from '../../core/auth.service';
 import { PersonPickerComponent } from '../people/person-picker.component';
-import { actionErrorKey, isMfaRequired } from '../people/person-errors';
+import { actionErrorKey } from '../people/person-errors';
 import { type ConnectTarget, STRENGTH_OPTIONS } from '../people/person-form.model';
 
 export interface ConnectDialogData {
@@ -96,7 +95,6 @@ export class ConnectDialog {
   private readonly ref = inject<MatDialogRef<ConnectDialog, boolean>>(MatDialogRef);
   private readonly api = inject(ApiClient);
   private readonly auth = inject(AuthService);
-  private readonly router = inject(Router);
 
   protected readonly strengths = STRENGTH_OPTIONS;
   /** `null` is the admin, like on the add form. */
@@ -128,13 +126,7 @@ export class ConnectDialog {
       next: () => this.ref.close(true),
       error: (failure: unknown) => {
         this.busy.set(false);
-        const apiError = toApiError(failure);
-        if (isMfaRequired(apiError)) {
-          void this.router.navigateByUrl('/mfa');
-          this.ref.close(false);
-        } else {
-          this.error.set(actionErrorKey(apiError));
-        }
+        this.error.set(actionErrorKey(toApiError(failure)));
       },
     });
   }

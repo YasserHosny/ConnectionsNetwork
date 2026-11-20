@@ -83,13 +83,18 @@ export class AddPersonPage {
 
   protected readonly created = signal<CreatePersonResponse | null>(null);
 
-  protected readonly submit = (value: PersonFormValue): Observable<CreatePersonResponse> => {
+  protected readonly submit = (
+    value: PersonFormValue,
+    idempotencyKey: string,
+  ): Observable<CreatePersonResponse> => {
     // The admin's own person comes from the session's `person_id` claim.
     const adminPersonId = this.auth.personId();
     if (!adminPersonId) {
       return throwError(() => new ApiError('no_person_claim', 'No signed-in person.', 401));
     }
-    return this.api.post<CreatePersonResponse>('/people', toNewPersonRequest(value, adminPersonId));
+    return this.api.post<CreatePersonResponse>('/people', toNewPersonRequest(value, adminPersonId), {
+      idempotencyKey,
+    });
   };
 
   protected matchedOnKey(matchedOn: string): string {

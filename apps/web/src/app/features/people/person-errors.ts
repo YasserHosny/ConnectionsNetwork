@@ -1,4 +1,4 @@
-import { ApiError } from '../../core/api.client';
+import { ApiError, CONTACT_IN_QUERY } from '../../core/api.client';
 
 /** What to tell the person about a failed save: i18n keys only, never `ApiError.message`. */
 export interface PersonErrorMessage {
@@ -80,6 +80,8 @@ export function personErrorMessage(error: ApiError): PersonErrorMessage {
       return message('person.errors.alreadyConnected');
     case 'not_found':
       return message('person.errors.notFound');
+    case 'mfa_required':
+      return message('person.errors.mfaRequired');
     default:
       // The auth codes are matched by status: a code like `auth.forbidden` would read as an i18n key.
       if (error.status === 401) return message('person.errors.sessionEnded');
@@ -90,7 +92,7 @@ export function personErrorMessage(error: ApiError): PersonErrorMessage {
   }
 }
 
-/** The admin has signed in but not completed TOTP this session: send them to /mfa. */
+/** The admin has signed in but not completed TOTP this session (ApiClient sends them to /mfa). */
 export function isMfaRequired(error: ApiError): boolean {
   return error.code === 'mfa_required';
 }
@@ -122,6 +124,11 @@ export function actionErrorKey(error: ApiError, notFoundKey = 'person.errors.not
       return 'person.errors.alreadyConnected';
     case 'not_found':
       return notFoundKey;
+    // ApiClient has already sent the admin to /mfa (or, for a 401 below, to /login).
+    case 'mfa_required':
+      return 'person.errors.mfaRequired';
+    case CONTACT_IN_QUERY:
+      return 'search.contactHint';
     case 'validation.invalid_request':
     case 'validation.invalid_value':
       return isPersonGone(error) ? 'person.errors.personNotFound' : 'person.errors.invalid';

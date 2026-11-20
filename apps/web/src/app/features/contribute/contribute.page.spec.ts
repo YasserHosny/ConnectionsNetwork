@@ -18,6 +18,7 @@ const INFO: ContributorInfo = { contributor_display_name: 'Karim Adel', expires_
 
 const EXPIRED_EN = 'This link has expired or is no longer valid. Ask for a new one.';
 const EXPIRED_AR = 'انتهت صلاحية هذا الرابط أو لم يعد صالحًا. اطلب رابطًا جديدًا.';
+const NO_TOKEN_EN = 'This page needs the link from your message. Open that link again.';
 
 const linkNotFound = { code: 'link_not_found', message: 'Link not found.', details: null, trace_id: 't' };
 
@@ -180,7 +181,8 @@ describe('ContributePage', () => {
   it('greets the contributor by name, with only the language switch in the header', async () => {
     await open();
 
-    expect(el().querySelector('h1')?.textContent).toContain('Hello, Karim Adel');
+    // The name is isolated (U+2068 ... U+2069), so it keeps its own direction inside the sentence.
+    expect(el().querySelector('h1')?.textContent).toContain('Hello, \u2068Karim Adel\u2069');
     expect(el().querySelector('app-language-switch')).not.toBeNull();
     expect(el().querySelector('nav, app-shell, [routerlink]')).toBeNull();
     expect(text()).not.toContain('Sign out');
@@ -208,14 +210,42 @@ describe('ContributePage', () => {
     expect(text()).not.toContain('Link not found.');
   });
 
-  it('shows the expired message and calls nothing when the link has no token', async () => {
+  it('asks to open the link from the message again when there is no token at all', async () => {
     openWithHash('');
 
     await open(null, '/c');
 
-    expect(text()).toContain(EXPIRED_EN);
+    expect(text()).toContain(NO_TOKEN_EN);
+    expect(text()).not.toContain(EXPIRED_EN);
     expect(el().querySelector('form')).toBeNull();
     http.expectNone(() => true);
+  });
+
+  it('keeps the token for this tab only', async () => {
+    await open();
+
+    expect(sessionStorage.getItem('connections.contributeToken')).toBe(TOKEN);
+    expect(JSON.stringify(localStorage)).not.toContain(TOKEN);
+  });
+
+  it('still works after a reload: the fragment is gone, the tab kept the token', async () => {
+    sessionStorage.setItem('connections.contributeToken', TOKEN);
+    openWithHash('');
+
+    await harness.navigateByUrl('/c', ContributePage);
+    fixture().detectChanges();
+
+    const info = http.expectOne('/api/v1/contribute/info');
+    expect(info.request.headers.get('X-Contributor-Token')).toBe(TOKEN);
+    info.flush(INFO);
+    await settle();
+    expect(el().querySelector('form')).not.toBeNull();
+  });
+
+  it('forgets the kept token when the link is dead', async () => {
+    await open({ status: 404, body: linkNotFound });
+
+    expect(sessionStorage.getItem('connections.contributeToken')).toBeNull();
   });
 
   it('treats a malformed token as an expired link without calling the server', async () => {
@@ -247,7 +277,7 @@ describe('ContributePage', () => {
 
     await addPerson('Sara Ali', 'Designer');
 
-    expect(text()).toContain('Added Sara Ali');
+    expect(text()).toContain('Added \u2068Sara Ali\u2069');
     const items = Array.from(el().querySelectorAll('.session-list li'));
     expect(items.length).toBe(1);
     expect(items[0].textContent).toContain('Sara Ali');
@@ -337,12 +367,47 @@ describe('ContributePage', () => {
     expect(el().querySelectorAll('.session-list li').length).toBe(1);
   });
 
-  it('restores a draft saved earlier under the same key', async () => {
-    drafts.save('contribute', { nameLatin: 'Half typed', strength: 'normal' });
+  it('restores a draft saved earlier under the same link', async () => {
+    drafts.save('contribute', {
+      nameLatin: 'Half typed',
+      strength: 'normal',
+      draftOwner: 'Karim Adel',
+      savedAt: new Date().toISOString(),
+    });
 
     await open();
 
     expect(field('nameLatin').value).toBe('Half typed');
+  });
+
+  it('drops a draft typed under another contributor\'s link', async () => {
+    drafts.save('contribute', {
+      nameLatin: 'Someone else\'s contact',
+      draftOwner: 'Hoda Samir',
+      savedAt: new Date().toISOString(),
+    });
+
+    await open();
+
+    expect(field('nameLatin').value).toBe('');
+    expect(drafts.load('contribute')).toBeNull();
+  });
+
+  it('sends an Idempotency-Key with each person, and the same one on a retry', async () => {
+    await open();
+
+    await fillAndSubmit();
+    const first = postRequest();
+    const key = first.request.headers.get('Idempotency-Key');
+    expect(key).toBeTruthy();
+    first.error(new ProgressEvent('error'));
+    await settle();
+
+    (el().querySelector('button.retry') as HTMLButtonElement).click();
+    const retry = postRequest();
+    expect(retry.request.headers.get('Idempotency-Key')).toBe(key);
+    retry.flush({ person_id: 'p-new' }, { status: 201, statusText: 'Created' });
+    await settle();
   });
 
   it('too many requests says to wait a minute and keeps no draft', async () => {
@@ -399,5 +464,18 @@ describe('ContributePage', () => {
     expect(tags.request.urlWithParams).not.toContain(TOKEN);
     expect(tags.request.headers.has('Authorization')).toBeFalse();
     tags.flush([{ label: 'Design', category: 'arts_literature' }]);
+  });
+
+  it('never asks for tag suggestions with a contact value', async () => {
+    await open();
+    (el().querySelector('details.more summary') as HTMLElement).click();
+    fixture().detectChanges();
+
+    const input = el().querySelector('app-tag-input input') as HTMLInputElement;
+    input.value = 'Sara 01012345678';
+    input.dispatchEvent(new Event('input'));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(http.match((r) => r.url === '/api/v1/contribute/tags').length).toBe(0);
   });
 });

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type { CreateLinkRequest, IssuedLink, ReviewPerson } from '@connections/domain-types';
 
@@ -9,7 +9,7 @@ import { ApiClient, toApiError } from '../../core/api.client';
 import { LocaleService } from '../../core/locale.service';
 import { relativeTime } from '../../core/relative-time';
 import { LinkIssuedDialog, type LinkIssuedDialogData } from '../links/link-issued.dialog';
-import { actionErrorKey, isMfaRequired } from '../people/person-errors';
+import { actionErrorKey } from '../people/person-errors';
 import { REVIEW_LIST_STYLES } from './review-list.styles';
 
 type LoadState = 'loading' | 'ready' | 'failed';
@@ -81,7 +81,6 @@ type Action = 'confirm' | 'link';
 export class StalePage {
   private readonly api = inject(ApiClient);
   private readonly dialog = inject(MatDialog);
-  private readonly router = inject(Router);
   private readonly locale = inject(LocaleService);
 
   protected readonly state = signal<LoadState>('loading');
@@ -101,10 +100,7 @@ export class StalePage {
         this.people.set(people);
         this.state.set('ready');
       },
-      error: (failure: unknown) => {
-        if (isMfaRequired(toApiError(failure))) void this.router.navigateByUrl('/mfa');
-        this.state.set('failed');
-      },
+      error: () => this.state.set('failed'),
     });
   }
 
@@ -158,9 +154,7 @@ export class StalePage {
   }
 
   private fail(failure: unknown): void {
-    const error = toApiError(failure);
     this.busy.set(null);
-    if (isMfaRequired(error)) void this.router.navigateByUrl('/mfa');
-    else this.error.set(actionErrorKey(error));
+    this.error.set(actionErrorKey(toApiError(failure)));
   }
 }

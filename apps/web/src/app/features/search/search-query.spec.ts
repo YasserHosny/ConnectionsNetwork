@@ -19,6 +19,9 @@ describe('isContactLike', () => {
 
   it('is true for an email address', () => {
     expect(isContactLike('sara@example.com')).toBeTrue();
+    // Inside other text too: the value must not ride into the URL with a name.
+    expect(isContactLike('Sara 01012345678')).toBeTrue();
+    expect(isContactLike('mail sara@example.com')).toBeTrue();
   });
 
   it('is false for names, skills and short numbers', () => {
@@ -84,5 +87,16 @@ describe('search filters in the URL', () => {
     expect(hasCriteria(EMPTY_FILTERS)).toBeFalse();
     expect(hasCriteria({ ...EMPTY_FILTERS, q: '  ' })).toBeFalse();
     expect(hasCriteria({ ...EMPTY_FILTERS, minLevel: 'basic' })).toBeTrue();
+  });
+
+  it('drops a contact-like industry or city too', () => {
+    const { filters, contactLike } = filtersFromParams(
+      convertToParamMap({ q: 'marketing', industry: 'Sara 01012345678', city: 'a@b.co' }),
+    );
+
+    expect(contactLike).toBeTrue();
+    expect(filters.q).toBe('marketing');
+    expect(filters.industry).toBe('');
+    expect(filters.city).toBe('');
   });
 });

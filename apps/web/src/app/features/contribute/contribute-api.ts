@@ -1,10 +1,11 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { ContributeResponse, ContributorInfo, ContributorTag, TagKind } from '@connections/domain-types';
-import { type Observable, catchError, map, throwError } from 'rxjs';
+import { type Observable, catchError, map, of, throwError } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiError, toApiError } from '../../core/api.client';
+import { containsContactValue } from '../../core/contact-value';
 import { type PersonFormValue, type TagSuggestion, toPersonInput } from '../people/person-form.model';
 
 export const CONTRIBUTOR_TOKEN_HEADER = 'X-Contributor-Token';
@@ -12,18 +13,48 @@ export const CONTRIBUTOR_TOKEN_HEADER = 'X-Contributor-Token';
 /** What the API issues: `secrets.token_urlsafe`. Anything else cannot be a valid link. */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
+/** Where the token is kept for this tab: sessionStorage (never localStorage, never a URL). */
+const TOKEN_STORAGE_KEY = 'connections.contributeToken';
+
+/** The token, or why there is none: no link at all, or text that cannot be a token. */
+export type TokenLookup = { token: string } | { token: null; reason: 'missing' | 'malformed' };
+
+function session(action: (storage: Storage) => string | null | void): string | null {
+  try {
+    return action(window.sessionStorage) ?? null;
+  } catch {
+    return null; // Blocked storage: the token lives in memory only, and a reload loses it.
+  }
+}
+
 /**
- * Takes the contributor token out of the address bar: reads it from the URL fragment
- * (`/c#<token>`) and removes the fragment at once, so it is not left to be copied, bookmarked or
- * shared from the address bar. Returns null when there is no token or it cannot be one.
+ * The contributor token, taken out of the address bar.
+ *
+ * From the URL fragment (`/c#<token>`) when there is one: the fragment is removed at once, so it
+ * is not left to be copied, bookmarked or shared from the address bar, and the token is kept in
+ * sessionStorage, so a reload of this tab still works. Scoped to the tab: closing it forgets the
+ * token, and other tabs and later visits never see it. Without a fragment, the kept token.
  */
-export function takeTokenFromLocation(): string | null {
+export function takeToken(): TokenLookup {
   const { hash, pathname, search } = window.location;
-  if (!hash) return null;
-  // Keep `history.state`: the router keeps its navigation id there.
-  window.history.replaceState(window.history.state, '', `${pathname}${search}`);
-  const token = hash.slice(1);
-  return TOKEN_PATTERN.test(token) ? token : null;
+  if (hash) {
+    // Keep `history.state`: the router keeps its navigation id there.
+    window.history.replaceState(window.history.state, '', `${pathname}${search}`);
+    const token = hash.slice(1);
+    if (!TOKEN_PATTERN.test(token)) {
+      forgetToken();
+      return { token: null, reason: 'malformed' };
+    }
+    session((storage) => storage.setItem(TOKEN_STORAGE_KEY, token));
+    return { token };
+  }
+  const kept = session((storage) => storage.getItem(TOKEN_STORAGE_KEY));
+  return kept && TOKEN_PATTERN.test(kept) ? { token: kept } : { token: null, reason: 'missing' };
+}
+
+/** Forgets the kept token: the link is dead (expired, revoked, unknown). */
+export function forgetToken(): void {
+  session((storage) => storage.removeItem(TOKEN_STORAGE_KEY));
 }
 
 /** The link is expired, revoked, unknown or malformed: the API answers all of these with 404. */
@@ -59,14 +90,19 @@ export class ContributeApi {
   }
 
   tags(kind: TagKind, q: string): Observable<TagSuggestion[]> {
+    // A phone number or an email typed into a tag field never goes into the query string.
+    if (containsContactValue(q)) return of([]);
     const params = q ? new HttpParams().set('kind', kind).set('q', q) : new HttpParams().set('kind', kind);
     return this.send((headers) =>
       this.http.get<ContributorTag[]>(`${environment.apiBaseUrl}/contribute/tags`, { headers, params }),
     ).pipe(map((tags) => tags.map((t) => ({ label: t.label, category: t.category }))));
   }
 
-  /** Adds the person, connected to the contributor with `value.strength`. */
-  addPerson(value: PersonFormValue): Observable<ContributeResponse> {
+  /**
+   * Adds the person, connected to the contributor with `value.strength`. `idempotencyKey` is the
+   * same on every retry of one submission, so a retry never adds the person twice.
+   */
+  addPerson(value: PersonFormValue, idempotencyKey: string): Observable<ContributeResponse> {
     if (!value.strength) return throwError(() => new Error('strength is required'));
     // Only `person` and `strength`: the API rejects `admin_notes` and any other key.
     const person = toPersonInput(value);
@@ -75,7 +111,7 @@ export class ContributeApi {
       this.http.post<ContributeResponse>(
         `${environment.apiBaseUrl}/contribute/people`,
         { person, strength: value.strength },
-        { headers },
+        { headers: { ...headers, 'Idempotency-Key': idempotencyKey } },
       ),
     );
   }

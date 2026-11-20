@@ -130,6 +130,7 @@
       "categoryLabel": "Category",
       "categoryPlaceholder": "Choose a category",
       "categoryRequired": "Choose a category for this skill.",
+      "pendingNotAdded": "Choose a category for {{label}} and add it, or clear the text, before saving.",
       "remove": "Remove {{label}}"
     },
     "duplicates": {
@@ -185,6 +186,7 @@
       "alreadyConnected": "These two people are already connected.",
       "notFound": "This person was not found.",
       "sessionEnded": "Your session ended. Sign in again.",
+      "mfaRequired": "Enter the code from your authenticator app again.",
       "forbidden": "You are not allowed to do this.",
       "unreachable": "Could not reach the server. Try again.",
       "cannotDeleteSelf": "You cannot delete your own profile.",
@@ -354,6 +356,7 @@
     "intro": "Add the people you know, one at a time. Each one will be connected to you.",
     "strengthLabel": "How well do you know them?",
     "expired": "This link has expired or is no longer valid. Ask for a new one.",
+    "noToken": "This page needs the link from your message. Open that link again.",
     "added": "Added {{name}}. Thank you!",
     "addAnother": "Add another person",
     "listTitle": "Added from this page",

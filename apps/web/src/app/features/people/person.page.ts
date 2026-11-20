@@ -22,7 +22,7 @@ import { relativeTime } from '../../core/relative-time';
 import { PathLineComponent } from '../search/path-line.component';
 import { ContactListComponent } from './contact-list.component';
 import { DeletePersonDialog } from './delete-person.dialog';
-import { actionErrorKey, isMfaRequired } from './person-errors';
+import { actionErrorKey } from './person-errors';
 import {
   AVAILABLE_FOR_OPTIONS,
   SENIORITY_OPTIONS,
@@ -391,9 +391,7 @@ export class PersonPage {
       },
       error: (failure: unknown) => {
         if (!current()) return;
-        const error = toApiError(failure);
-        if (isMfaRequired(error)) void this.router.navigateByUrl('/mfa');
-        this.state.set(error.code === 'not_found' ? 'notFound' : 'failed');
+        this.state.set(toApiError(failure).code === 'not_found' ? 'notFound' : 'failed');
       },
     });
 
@@ -478,10 +476,8 @@ export class PersonPage {
   }
 
   private fail(failure: unknown): void {
-    const error = toApiError(failure);
     this.busy.set(null);
-    if (isMfaRequired(error)) void this.router.navigateByUrl('/mfa');
-    else this.actionError.set(actionErrorKey(error));
+    this.actionError.set(actionErrorKey(toApiError(failure)));
   }
 
   private path(id: string): string {

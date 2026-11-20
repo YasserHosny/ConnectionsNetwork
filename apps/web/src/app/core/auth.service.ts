@@ -1,6 +1,7 @@
 import { InjectionToken, Injectable, computed, inject, signal } from '@angular/core';
 import { type Session, type SupabaseClient, createClient } from '@supabase/supabase-js';
 
+import { DraftStore } from './draft.store';
 import { RuntimeConfig } from './runtime-config';
 
 export type AuthLevel = 'aal1' | 'aal2';
@@ -79,6 +80,7 @@ export function personIdFromAccessToken(token: string | null | undefined): strin
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly client = inject(SUPABASE_CLIENT);
+  private readonly drafts = inject(DraftStore);
   private readonly current = signal<Session | null>(null);
   /** The factor being enrolled in this visit, until its first code is verified. */
   private pendingFactorId: string | null = null;
@@ -158,9 +160,14 @@ export class AuthService {
    * before any network call, so an offline or failing server cannot leave a session that a reload
    * would restore (with the default global scope the client returns `{ error }` and keeps it),
    * and it does not revoke the admin's sessions on their other devices.
+   *
+   * Signing out also removes every draft on this device: they can hold contact values, and the
+   * next person at this browser must not find them. `keepDrafts` is for a session that ENDED
+   * (the API answered 401): the admin signs back in and finds what they were typing.
    */
-  async signOut(): Promise<void> {
+  async signOut(options: { keepDrafts?: boolean } = {}): Promise<void> {
     this.pendingFactorId = null;
+    if (!options.keepDrafts) this.drafts.clearAll();
     try {
       await this.client?.auth.signOut({ scope: 'local' });
     } catch (error) {

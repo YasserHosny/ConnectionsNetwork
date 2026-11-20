@@ -1,7 +1,7 @@
 import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type { ContactOut, PersonOut, SearchResult } from '@connections/domain-types';
 import { firstValueFrom } from 'rxjs';
@@ -11,7 +11,7 @@ import { copyText } from '../../core/clipboard';
 import { LocaleService } from '../../core/locale.service';
 import { relativeTime } from '../../core/relative-time';
 import { ContactListComponent } from '../people/contact-list.component';
-import { actionErrorKey, isMfaRequired } from '../people/person-errors';
+import { actionErrorKey } from '../people/person-errors';
 import {
   AVAILABLE_FOR_OPTIONS,
   SKILL_LEVEL_OPTIONS,
@@ -282,7 +282,6 @@ const INTRO_STATUS_KEYS: Record<IntroStatus, string> = {
 })
 export class ResultCardComponent {
   private readonly api = inject(ApiClient);
-  private readonly router = inject(Router);
   private readonly locale = inject(LocaleService);
   private readonly window = inject(DOCUMENT).defaultView;
 
@@ -369,14 +368,12 @@ export class ResultCardComponent {
     this.intro.set(null);
   }
 
-  /** The person, or null after the failure has been shown (or the admin sent to /mfa). */
+  /** The person, or null after the failure has been shown (ApiClient handles an ended session). */
   private async fetchPerson(id: string): Promise<PersonOut | null> {
     try {
       return await firstValueFrom(this.api.get<PersonOut>(`/people/${encodeURIComponent(id)}`));
     } catch (failure) {
-      const apiError = toApiError(failure);
-      if (isMfaRequired(apiError)) void this.router.navigateByUrl('/mfa');
-      else this.error.set(actionErrorKey(apiError));
+      this.error.set(actionErrorKey(toApiError(failure)));
       return null;
     } finally {
       this.busy.set(false);

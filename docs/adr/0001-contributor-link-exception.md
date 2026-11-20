@@ -18,7 +18,9 @@
     once and never stored. Renewing writes a new hash and resets the 30 days, so the old token stops
     working. A revoked link stays revoked (`409 link_revoked` on renew).
   - **The token stays out of URLs and logs.** It sits in the URL fragment, which browsers never
-    send, and the page strips it from the address bar. Requests carry it in `X-Contributor-Token`.
+    send, and the page strips it from the address bar. It is kept for that browser tab only
+    (`sessionStorage`, never `localStorage`), so a reload keeps working, and forgotten as soon as
+    the API answers 404. Requests carry it in `X-Contributor-Token`.
     The API hashes it first and passes only the hash to the database. The stored hash is itself
     what the functions accept, so it must stay out of logs too. SlowAPI logs its bucket key when a
     limit is exceeded, so the per-link key is a domain-separated hash,

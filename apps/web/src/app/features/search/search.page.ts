@@ -10,7 +10,7 @@ import type { SearchResult } from '@connections/domain-types';
 import { type Observable, Subject, catchError, concat, map, of, switchMap } from 'rxjs';
 
 import { ApiClient, toApiError } from '../../core/api.client';
-import { actionErrorKey, isMfaRequired } from '../people/person-errors';
+import { actionErrorKey } from '../people/person-errors';
 import {
   AVAILABLE_FOR_OPTIONS,
   SENIORITY_OPTIONS,
@@ -23,7 +23,7 @@ import {
   type SearchFilters,
   filtersFromParams,
   hasCriteria,
-  isContactLike,
+  hasContactValue,
   toApiParams,
   toUrlParams,
 } from './search-query';
@@ -264,7 +264,7 @@ export class SearchPage {
   protected submit(): void {
     const filters = this.form.getRawValue() as SearchFilters;
     this.contactHint.set(false);
-    if (isContactLike(filters.q)) {
+    if (hasContactValue(filters)) {
       this.contactHint.set(true);
       this.searches.next(null);
       return;
@@ -293,9 +293,7 @@ export class SearchPage {
       this.api.get<SearchResult[]>('/search', toApiParams(filters)).pipe(
         map((results): Outcome => ({ kind: 'done', results })),
         catchError((failure: unknown) => {
-          const error = toApiError(failure);
-          if (isMfaRequired(error)) void this.router.navigateByUrl('/mfa');
-          return of<Outcome>({ kind: 'error', key: actionErrorKey(error) });
+          return of<Outcome>({ kind: 'error', key: actionErrorKey(toApiError(failure)) });
         }),
       ),
     );

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { TranslatePipe, TranslateService } from '@ngx-translate/core';
 import type {
   DismissRequest,
@@ -13,7 +13,7 @@ import type { Observable } from 'rxjs';
 
 import { ApiClient, toApiError } from '../../core/api.client';
 import { ConfirmDialog, type ConfirmDialogData } from '../../layout/confirm.dialog';
-import { actionErrorKey, isMfaRequired, isPersonGone } from '../people/person-errors';
+import { actionErrorKey, isPersonGone } from '../people/person-errors';
 import { REVIEW_LIST_STYLES } from './review-list.styles';
 
 type LoadState = 'loading' | 'ready' | 'failed';
@@ -154,7 +154,6 @@ const MATCH_KEYS: Record<DuplicatePair['matched_on'][number], string> = {
 export class DuplicatesPage {
   private readonly api = inject(ApiClient);
   private readonly dialog = inject(MatDialog);
-  private readonly router = inject(Router);
   private readonly translate = inject(TranslateService);
 
   protected readonly state = signal<LoadState>('loading');
@@ -241,9 +240,7 @@ export class DuplicatesPage {
       error: (failure: unknown) => {
         this.busy.set(false);
         const apiError = toApiError(failure);
-        if (isMfaRequired(apiError)) {
-          void this.router.navigateByUrl('/mfa');
-        } else if (isPersonGone(apiError)) {
+        if (isPersonGone(apiError)) {
           this.error.set('review.gone');
           this.fetch();
         } else {
@@ -260,10 +257,7 @@ export class DuplicatesPage {
         this.pairs.set(pairs);
         this.state.set('ready');
       },
-      error: (failure: unknown) => {
-        if (isMfaRequired(toApiError(failure))) void this.router.navigateByUrl('/mfa');
-        this.state.set('failed');
-      },
+      error: () => this.state.set('failed'),
     });
   }
 }

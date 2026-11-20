@@ -37,4 +37,18 @@ export class DraftStore {
       // Nothing to remove, or it cannot be removed.
     }
   }
+
+  /** Every draft on this device, whatever form it belongs to (sign-out: they hold contact values). */
+  clearAll(): void {
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith(PREFIX)) keys.push(key);
+      }
+      keys.forEach((key) => localStorage.removeItem(key));
+    } catch {
+      // Storage is unavailable: there is nothing it could still hold for us.
+    }
+  }
 }

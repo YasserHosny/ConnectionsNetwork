@@ -233,9 +233,23 @@ export class TagInputComponent {
     this.categoryMissing.set(false);
   }
 
+  /** A picked suggestion that is complete (an industry, or a skill with its category) is added. */
   protected onOptionSelected(label: string): void {
     const suggestion = this.suggestions().find((s) => s.label === label);
-    if (suggestion) this.applySuggestion(suggestion);
+    if (!suggestion) return;
+    this.applySuggestion(suggestion);
+    if (this.kind() === 'industry' || suggestion.category) this.add();
+  }
+
+  /**
+   * On save: adds what is typed but not yet added, when that needs nothing more. Returns the text
+   * it could not add (a skill with no category, which is then flagged here), or null.
+   */
+  commitPending(): string | null {
+    const label = this.text().trim();
+    if (!label) return null;
+    this.add();
+    return this.text().trim() ? label : null;
   }
 
   /** A picked suggestion fills in the text and the category it is filed under. */

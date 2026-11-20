@@ -8,6 +8,7 @@ import {
   input,
   output,
   signal,
+  viewChildren,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -24,7 +25,6 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatRadioModule } from '@angular/material/radio';
-import { Router } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type {
   AvailableFor,
@@ -38,8 +38,10 @@ import type {
 import { type Observable, map } from 'rxjs';
 
 import { ApiClient, toApiError } from '../../core/api.client';
+import { IsolatePipe } from '../../core/bidi';
 import { isContactPickerSupported, pickContact } from '../../core/contact-picker';
 import { DraftStore } from '../../core/draft.store';
+import { IDEMPOTENCY_KEY_PATTERN, newIdempotencyKey } from '../../core/idempotency';
 import { type PersonErrorMessage, personErrorMessage } from './person-errors';
 import {
   AVAILABLE_FOR_OPTIONS,
@@ -61,6 +63,16 @@ import { PersonPickerComponent } from './person-picker.component';
 import { TagInputComponent } from './tag-input.component';
 
 const ARABIC_SCRIPT = /[؀-ۿ]/;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** What a draft stores besides the form value. */
+interface DraftMeta {
+  /** The Idempotency-Key of the submission that failed, so its retry is the same submission. */
+  idempotencyKey?: string;
+  /** Whose draft it is (the contributor's name), when the form is given a `draftOwner`. */
+  draftOwner?: string;
+  savedAt?: string;
+}
 
 const nameRequired = (group: AbstractControl): ValidationErrors | null =>
   hasName({ nameAr: group.get('nameAr')?.value ?? '', nameLatin: group.get('nameLatin')?.value ?? '' })
@@ -76,7 +88,14 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
  *
  * Drafts (online-only app): nothing is stored while typing. When `submitter` fails with a network
  * or server error the value is kept on this device under `draftKey` and a retry is offered; a
- * draft found on open is restored; a successful save clears it.
+ * draft found on open is restored; a successful save clears it. A draft given a `draftOwner` is
+ * restored only for that owner, and one older than `draftMaxAgeDays` is dropped.
+ *
+ * Every submission carries an Idempotency-Key (the submitter's second argument): the same key on
+ * a retry, and in the draft, so resubmitting after a lost answer never creates the person twice.
+ *
+ * Text typed into a skill or industry field but not added yet is added on save when it needs
+ * nothing more; a skill still missing its category stops the save and says so.
  */
 @Component({
   selector: 'app-person-form',
@@ -91,6 +110,7 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
     TranslatePipe,
     TagInputComponent,
     PersonPickerComponent,
+    IsolatePipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -295,6 +315,12 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
         </div>
       </details>
 
+      @if (pendingTag(); as label) {
+        <p class="pending-tag field-error" role="alert">
+          {{ 'person.tags.pendingNotAdded' | translate: { label: (label | isolate) } }}
+        </p>
+      }
+
       @if (error(); as failure) {
         <div class="error" role="alert">
           <p>{{ failure.key | translate: { field: failure.fieldKey ? (failure.fieldKey | translate) : '' } }}</p>
@@ -306,7 +332,7 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
         </div>
       }
 
-      <button mat-flat-button type="submit" class="save" [disabled]="busy()">
+      <button mat-flat-button type="submit" class="save" [disabled]="busy() || done()">
         {{ (busy() ? 'person.form.saving' : 'person.form.save') | translate }}
       </button>
     </form>
@@ -422,8 +448,11 @@ export class PersonFormComponent implements OnInit {
   readonly draftKey = input.required<string>();
   /** Starting values for an edit; anything left out starts empty. */
   readonly initial = input<Partial<PersonFormValue> | null>(null);
-  /** Saves the value (the API call); its result is passed on through `saved`. */
-  readonly submitter = input.required<(value: PersonFormValue) => Observable<unknown>>();
+  /**
+   * Saves the value (the API call); its result is passed on through `saved`. The second argument
+   * is the submission's Idempotency-Key, for a create (an edit may ignore it).
+   */
+  readonly submitter = input.required<(value: PersonFormValue, idempotencyKey: string) => Observable<unknown>>();
   readonly saved = output<unknown>();
   /**
    * A contributor adding people from their link (Task 16), not the admin: no private notes, no
@@ -433,13 +462,19 @@ export class PersonFormComponent implements OnInit {
   readonly contributor = input(false);
   /** Where tag suggestions come from; the admin's `/tags` when not given. */
   readonly suggestSource = input<TagSuggest | null>(null);
+  /** Whose draft this is (the contributor's name): another owner's draft is dropped, not shown. */
+  readonly draftOwner = input<string | null>(null);
+  /** A draft older than this is dropped on open; drafts do not expire when not given. */
+  readonly draftMaxAgeDays = input<number | null>(null);
 
   private readonly fb = inject(FormBuilder).nonNullable;
   // Looked up on first use: a contributor's form never needs the admin client (or its session).
   private readonly injector = inject(Injector);
   private readonly drafts = inject(DraftStore);
-  private readonly router = inject(Router);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly tagInputs = viewChildren(TagInputComponent);
+  /** This submission's Idempotency-Key, from the first attempt until it succeeds. */
+  private idempotencyKey: string | null = null;
 
   protected readonly strengths = STRENGTH_OPTIONS;
   protected readonly seniorities = SENIORITY_OPTIONS;
@@ -476,6 +511,10 @@ export class PersonFormComponent implements OnInit {
   protected readonly error = signal<PersonErrorMessage | null>(null);
   protected readonly draftRestored = signal(false);
   protected readonly moreOpen = signal(false);
+  /** Saved: Save stays disabled until the page moves on, so a second press adds nobody twice. */
+  protected readonly done = signal(false);
+  /** Text in a tag field that could not be added on save. */
+  protected readonly pendingTag = signal<string | null>(null);
 
   protected get socialLinks() {
     return this.form.controls.socialLinks;
@@ -500,7 +539,7 @@ export class PersonFormComponent implements OnInit {
       this.form.controls.strength.addValidators(Validators.required);
       this.form.controls.strength.updateValueAndValidity();
     }
-    const draft = parseFormValue(this.drafts.load(this.draftKey()));
+    const draft = this.loadDraft();
     if (draft) {
       this.apply(draft);
       this.draftRestored.set(true);
@@ -543,6 +582,7 @@ export class PersonFormComponent implements OnInit {
 
   protected discardDraft(): void {
     this.drafts.clear(this.draftKey());
+    this.idempotencyKey = null;
     this.apply(this.startingValue());
     this.draftRestored.set(false);
     this.error.set(null);
@@ -550,45 +590,85 @@ export class PersonFormComponent implements OnInit {
   }
 
   protected submit(): void {
-    if (this.busy()) return;
+    if (this.busy() || this.done()) return;
     this.submitAttempted.set(true);
+    if (!this.commitPendingTags()) return;
     if (this.form.invalid) return;
     this.send();
   }
 
   protected retry(): void {
-    if (!this.busy()) this.send();
+    if (!this.busy() && !this.done()) this.send();
+  }
+
+  /** Adds typed-but-not-added tags; false (and the message) when one cannot be added. */
+  private commitPendingTags(): boolean {
+    const blocked = this.tagInputs()
+      .map((input) => input.commitPending())
+      .find((label) => label !== null);
+    this.pendingTag.set(blocked ?? null);
+    if (blocked) this.moreOpen.set(true);
+    return !blocked;
   }
 
   private send(): void {
     const value = this.currentValue();
+    this.idempotencyKey ??= newIdempotencyKey();
+    const key = this.idempotencyKey;
     this.busy.set(true);
     this.error.set(null);
-    this.submitter()(value).subscribe({
+    this.submitter()(value, key).subscribe({
       next: (result) => {
         this.busy.set(false);
+        this.done.set(true);
+        this.idempotencyKey = null;
         this.drafts.clear(this.draftKey());
         this.saved.emit(result);
       },
-      error: (failure: unknown) => this.onFailure(failure, value),
+      error: (failure: unknown) => this.onFailure(failure, value, key),
     });
   }
 
-  private onFailure(failure: unknown, value: PersonFormValue): void {
+  private onFailure(failure: unknown, value: PersonFormValue, idempotencyKey: string): void {
     const apiError = toApiError(failure);
     this.busy.set(false);
     // Keep the entry for a network or server failure (nothing about the data was refused), and
-    // for a lapsed MFA step: the admin is sent to /mfa and must find their input on return.
-    // Any other rejection (a 4xx about the data) never saves a draft.
-    const mfaRequired = apiError.code === 'mfa_required';
+    // when the session ended or its MFA step lapsed: ApiClient sends the admin to /login or /mfa,
+    // and they must find their input on return. Any other rejection (a 4xx about the data) never
+    // saves a draft.
+    const sessionEnded = apiError.code === 'mfa_required' || apiError.status === 401;
     const message = personErrorMessage(apiError);
-    if (message.retryable || mfaRequired) this.drafts.save(this.draftKey(), value);
-    if (mfaRequired) {
-      void this.router.navigateByUrl('/mfa');
-      return;
-    }
+    if (message.retryable || sessionEnded) this.saveDraft(value, idempotencyKey);
+    if (sessionEnded) return;
     this.error.set(message);
     this.cdr.markForCheck();
+  }
+
+  private saveDraft(value: PersonFormValue, idempotencyKey: string): void {
+    const meta: DraftMeta = { idempotencyKey, savedAt: new Date().toISOString() };
+    const owner = this.draftOwner();
+    if (owner !== null) meta.draftOwner = owner;
+    this.drafts.save(this.draftKey(), { ...value, ...meta });
+  }
+
+  /** The stored draft, when there is one for this owner and it is not too old; else null. */
+  private loadDraft(): PersonFormValue | null {
+    const raw = this.drafts.load<unknown>(this.draftKey());
+    const value = parseFormValue(raw);
+    if (!value) return null;
+    const meta = raw as DraftMeta;
+    const owner = this.draftOwner();
+    const maxAgeDays = this.draftMaxAgeDays();
+    const savedAt = typeof meta.savedAt === 'string' ? Date.parse(meta.savedAt) : NaN;
+    const wrongOwner = owner !== null && meta.draftOwner !== owner;
+    const tooOld = maxAgeDays !== null && !(Date.now() - savedAt <= maxAgeDays * DAY_MS);
+    if (wrongOwner || tooOld) {
+      this.drafts.clear(this.draftKey());
+      return null;
+    }
+    const key = meta.idempotencyKey;
+    this.idempotencyKey = typeof key === 'string' && IDEMPOTENCY_KEY_PATTERN.test(key) ? key : null;
+    return value;
   }
 
   private addContactOnce(kind: ContactKind, value: string): void {

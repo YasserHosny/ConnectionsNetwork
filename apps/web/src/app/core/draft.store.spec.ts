@@ -25,6 +25,20 @@ describe('DraftStore', () => {
     expect(store.load('edit-person:7')).toEqual({ nameLatin: 'Omar' });
   });
 
+  it('clears every draft at once, and nothing else in storage', () => {
+    store.save('add-person', { nameLatin: 'Sara' });
+    store.save('edit-person:7', { nameLatin: 'Omar' });
+    store.save('contribute', { nameLatin: 'Hoda' });
+    localStorage.setItem('connections.locale', 'en');
+
+    store.clearAll();
+
+    expect(store.load('add-person')).toBeNull();
+    expect(store.load('edit-person:7')).toBeNull();
+    expect(store.load('contribute')).toBeNull();
+    expect(localStorage.getItem('connections.locale')).toBe('en');
+  });
+
   it('returns null for a missing or corrupt draft', () => {
     expect(store.load('add-person')).toBeNull();
 

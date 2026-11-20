@@ -1,12 +1,11 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type { ReviewPerson } from '@connections/domain-types';
 
-import { ApiClient, toApiError } from '../../core/api.client';
-import { isMfaRequired } from '../people/person-errors';
+import { ApiClient } from '../../core/api.client';
 import { ConnectDialog, type ConnectDialogData } from './connect.dialog';
 import { REVIEW_LIST_STYLES } from './review-list.styles';
 
@@ -68,7 +67,6 @@ type LoadState = 'loading' | 'ready' | 'failed';
 export class UnreachablePage {
   private readonly api = inject(ApiClient);
   private readonly dialog = inject(MatDialog);
-  private readonly router = inject(Router);
 
   protected readonly state = signal<LoadState>('loading');
   protected readonly people = signal<ReviewPerson[]>([]);
@@ -85,10 +83,7 @@ export class UnreachablePage {
         this.people.set(people);
         this.state.set('ready');
       },
-      error: (failure: unknown) => {
-        if (isMfaRequired(toApiError(failure))) void this.router.navigateByUrl('/mfa');
-        this.state.set('failed');
-      },
+      error: () => this.state.set('failed'),
     });
   }
 

@@ -1,7 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Router, provideRouter } from '@angular/router';
+import { provideRouter } from '@angular/router';
 import { provideTranslateService } from '@ngx-translate/core';
 import { Observable, of, throwError } from 'rxjs';
 
@@ -18,7 +18,7 @@ const AR_STRENGTH_HELP = 'أي حد تقدر تبعتله رسالة وهو يع
 describe('PersonFormComponent', () => {
   let fixture: ComponentFixture<PersonFormComponent>;
   let drafts: DraftStore;
-  let submitter: jasmine.Spy<(value: PersonFormValue) => Observable<unknown>>;
+  let submitter: jasmine.Spy<(value: PersonFormValue, idempotencyKey: string) => Observable<unknown>>;
   let saved: jasmine.Spy;
 
   const el = () => fixture.nativeElement as HTMLElement;
@@ -181,27 +181,195 @@ describe('PersonFormComponent', () => {
     expect(alertText()).not.toContain('Request validation failed.');
   });
 
-  it('keeps the draft and sends an admin whose MFA lapsed to /mfa', async () => {
-    submitter.and.returnValue(
-      throwError(() => new ApiError('mfa_required', 'Multi-factor authentication is required.', 403)),
-    );
-    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+  // ApiClient sends the admin to /mfa or /login (api.client.spec); the form keeps what was typed.
+  for (const [what, error] of [
+    ['MFA step lapsed', new ApiError('mfa_required', 'Multi-factor authentication is required.', 403)],
+    ['session ended', new ApiError('auth.unauthenticated', 'Authentication failed.', 401)],
+  ] as const) {
+    it(`keeps the draft when the ${what}`, async () => {
+      submitter.and.returnValue(throwError(() => error));
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+
+      await submit();
+
+      expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
+      expect(drafts.load<PersonFormValue>('add-person')?.strength).toBe('weak');
+    });
+  }
+
+  describe('Idempotency-Key', () => {
+    const networkDown = () => throwError(() => new ApiError('network_error', 'down', 0));
+
+    it('sends one key per submission, the same one on a retry, and keeps it in the draft', async () => {
+      submitter.and.returnValue(networkDown());
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      const key = submitter.calls.mostRecent().args[1] as string;
+
+      expect(key).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+      expect(drafts.load<Record<string, unknown>>('add-person')?.['idempotencyKey']).toBe(key);
+
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+    });
+
+    it('resubmits a restored draft with the key it was first sent with', async () => {
+      submitter.and.returnValue(networkDown());
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      const key = submitter.calls.mostRecent().args[1];
+      fixture.destroy();
+
+      submitter.and.returnValue(of({ ok: true }));
+      create();
+      await submit();
+
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+    });
+
+    it('uses a new key for a new person', async () => {
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      const first = submitter.calls.mostRecent().args[1];
+      fixture.destroy();
+
+      create();
+      setText('nameLatin', 'Omar');
+      chooseStrength('weak');
+      await submit();
+
+      expect(submitter.calls.mostRecent().args[1]).not.toBe(first);
+    });
+  });
+
+  it('keeps Save disabled after a successful save, until the page moves on', async () => {
     create();
     setText('nameLatin', 'Sara Ali');
     chooseStrength('weak');
 
     await submit();
+    await submit();
 
-    expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
-    expect(drafts.load<PersonFormValue>('add-person')?.strength).toBe('weak');
-    expect(navigate).toHaveBeenCalledWith('/mfa');
+    expect(submitter).toHaveBeenCalledTimes(1);
+    expect((el().querySelector('button.save') as HTMLButtonElement).disabled).toBeTrue();
+  });
+
+  describe('text typed in a tag field but not added', () => {
+    function openMore(): void {
+      (el().querySelector('details.more summary') as HTMLElement).click();
+      fixture.detectChanges();
+    }
+
+    function typeTag(index: number, text: string): void {
+      const input = el().querySelectorAll('app-tag-input input')[index] as HTMLInputElement;
+      input.value = text;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+    }
+
+    it('is added on save when nothing else is needed (an industry)', async () => {
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      openMore();
+      typeTag(1, 'Banking');
+
+      await submit();
+
+      expect(submitter).toHaveBeenCalledTimes(1);
+      expect(submitter.calls.mostRecent().args[0].industries).toEqual(['Banking']);
+    });
+
+    it('blocks the save when a skill has no category, naming the text', async () => {
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      openMore();
+      typeTag(0, 'Python');
+
+      await submit();
+
+      expect(submitter).not.toHaveBeenCalled();
+      expect(el().querySelector('.pending-tag')?.textContent).toContain('Python');
+    });
+
+    it('is added on save when the skill has its category', async () => {
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      openMore();
+      typeTag(0, 'Python');
+      const category = el().querySelector('app-tag-input select.category') as HTMLSelectElement;
+      category.value = 'technical';
+      category.dispatchEvent(new Event('change'));
+
+      await submit();
+
+      expect(submitter.calls.mostRecent().args[0].skills).toEqual([
+        { label: 'Python', category: 'technical', level: null },
+      ]);
+    });
+  });
+
+  describe('a draft that belongs to someone (the contributor page)', () => {
+    async function failOnce(owner: string): Promise<void> {
+      submitter.and.returnValue(throwError(() => new ApiError('network_error', 'down', 0)));
+      create({ draftKey: 'contribute', draftOwner: owner, draftMaxAgeDays: 7, contributor: true });
+      setText('nameLatin', 'Hoda');
+      chooseStrength('weak');
+      await submit();
+      fixture.destroy();
+    }
+
+    it('records who it belongs to and when it was saved', async () => {
+      await failOnce('Sami');
+
+      const stored = drafts.load<Record<string, unknown>>('contribute');
+      expect(stored?.['draftOwner']).toBe('Sami');
+      expect(Date.now() - Date.parse(stored?.['savedAt'] as string)).toBeLessThan(60_000);
+    });
+
+    it('is restored for the same contributor', async () => {
+      await failOnce('Sami');
+
+      create({ draftKey: 'contribute', draftOwner: 'Sami', draftMaxAgeDays: 7, contributor: true });
+
+      expect(field('nameLatin').value).toBe('Hoda');
+    });
+
+    it('is dropped for another contributor', async () => {
+      await failOnce('Sami');
+
+      create({ draftKey: 'contribute', draftOwner: 'Karim', draftMaxAgeDays: 7, contributor: true });
+
+      expect(field('nameLatin').value).toBe('');
+      expect(drafts.load('contribute')).toBeNull();
+    });
+
+    it('is dropped once it is older than its maximum age', () => {
+      const eightDaysAgo = new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString();
+      drafts.save('contribute', { nameLatin: 'Hoda', draftOwner: 'Sami', savedAt: eightDaysAgo });
+
+      create({ draftKey: 'contribute', draftOwner: 'Sami', draftMaxAgeDays: 7, contributor: true });
+
+      expect(field('nameLatin').value).toBe('');
+      expect(drafts.load('contribute')).toBeNull();
+    });
   });
 
   it('restores the typed input when the page is reopened after an MFA step', async () => {
     submitter.and.returnValue(
       throwError(() => new ApiError('mfa_required', 'Multi-factor authentication is required.', 403)),
     );
-    spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
     create();
     setText('nameLatin', 'Sara Ali');
     chooseStrength('weak');

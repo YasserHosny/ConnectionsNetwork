@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatToolbarModule } from '@angular/material/toolbar';
@@ -187,6 +187,14 @@ export class ShellComponent {
     { path: '/links', icon: 'link', labelKey: 'shell.nav.links' },
     { path: '/export', icon: 'download', labelKey: 'shell.nav.export' },
   ];
+
+  constructor() {
+    // The session can end while a page is open: signed out in another tab, a refresh token that
+    // was revoked or expired. Nothing behind the shell works without one.
+    effect(() => {
+      if (!this.auth.session()) void this.router.navigateByUrl('/login');
+    });
+  }
 
   protected async signOut(): Promise<void> {
     // Leaving the page must not depend on the sign-out call succeeding.

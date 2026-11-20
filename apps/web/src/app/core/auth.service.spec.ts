@@ -221,6 +221,30 @@ describe('AuthService', () => {
       expect(service.session()).toBeNull();
     });
 
+    it('removes every draft kept on this device (they hold contact values)', async () => {
+      localStorage.setItem('connections.draft.add-person', '{"nameLatin":"Sara"}');
+      localStorage.setItem('connections.draft.contribute', '{"nameLatin":"Hoda"}');
+      const service = createService();
+      await service.signIn('a@b.c', 'pw');
+
+      await service.signOut();
+
+      expect(localStorage.getItem('connections.draft.add-person')).toBeNull();
+      expect(localStorage.getItem('connections.draft.contribute')).toBeNull();
+    });
+
+    it('keeps the drafts when the session merely ended (the admin signs back in to them)', async () => {
+      localStorage.setItem('connections.draft.add-person', '{"nameLatin":"Sara"}');
+      const service = createService();
+      await service.signIn('a@b.c', 'pw');
+
+      await service.signOut({ keepDrafts: true });
+
+      expect(service.session()).toBeNull();
+      expect(localStorage.getItem('connections.draft.add-person')).not.toBeNull();
+      localStorage.removeItem('connections.draft.add-person');
+    });
+
     it('does not throw, and still ends the session, if the client throws', async () => {
       spyOn(console, 'error');
       fake.auth.signOut.and.rejectWith(new Error('boom'));

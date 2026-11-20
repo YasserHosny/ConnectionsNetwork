@@ -104,4 +104,13 @@ describe('PersonPickerComponent', () => {
 
     expect(el().querySelector('[role=alert]')?.textContent).toContain('Search is unavailable');
   }));
+
+  it('never searches with a contact value, and says why', fakeAsync(() => {
+    typeQuery('Sara 01012345678');
+    tick(400);
+    fixture.detectChanges();
+
+    http.expectNone((r) => r.url === '/api/v1/search');
+    expect(el().querySelector('.contact-hint')?.textContent).toContain('cannot be searched');
+  }));
 });

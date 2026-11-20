@@ -139,10 +139,18 @@ export class AuthService {
     this.current.set(data.session);
   }
 
+  /**
+   * Ends the session on this device and never throws. The local scope removes the stored session
+   * before any network call, so an offline or failing server cannot leave a session that a reload
+   * would restore (with the default global scope the client returns `{ error }` and keeps it),
+   * and it does not revoke the admin's sessions on their other devices.
+   */
   async signOut(): Promise<void> {
     this.pendingFactorId = null;
     try {
-      await this.client?.auth.signOut();
+      await this.client?.auth.signOut({ scope: 'local' });
+    } catch (error) {
+      console.error('[auth] sign-out reported an error', error);
     } finally {
       this.current.set(null);
     }

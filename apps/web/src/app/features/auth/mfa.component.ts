@@ -185,7 +185,8 @@ export class MfaComponent implements OnInit {
   }
 
   protected async signOut(): Promise<void> {
-    await this.auth.signOut();
+    // Leaving the page must not depend on the sign-out call succeeding.
+    await this.auth.signOut().catch((error: unknown) => console.error('[auth] sign-out failed', error));
     await this.router.navigateByUrl('/login');
   }
 }

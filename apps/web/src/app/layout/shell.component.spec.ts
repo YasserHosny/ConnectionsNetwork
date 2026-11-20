@@ -66,4 +66,18 @@ describe('ShellComponent', () => {
     expect(auth.signOut).toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith('/login');
   });
+
+  it('still returns to /login when sign-out throws', async () => {
+    spyOn(console, 'error');
+    auth.signOut.and.rejectWith(new Error('boom'));
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+    const signOut = Array.from(el().querySelectorAll('mat-toolbar button')).find((b) =>
+      b.textContent?.includes('تسجيل الخروج'),
+    ) as HTMLButtonElement;
+
+    signOut.click();
+    await fixture.whenStable();
+
+    expect(navigate).toHaveBeenCalledWith('/login');
+  });
 });

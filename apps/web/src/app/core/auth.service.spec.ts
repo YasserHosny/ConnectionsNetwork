@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import type { Session } from '@supabase/supabase-js';
+import { type Session, createClient } from '@supabase/supabase-js';
 
 import { fakeJwt, fakeSession } from '../testing/test-helpers';
 import { AuthError, AuthService, SUPABASE_CLIENT, aalFromAccessToken } from './auth.service';
@@ -189,14 +189,65 @@ describe('AuthService', () => {
     });
   });
 
-  it('signOut ends the session even if the server call fails', async () => {
-    fake.auth.signOut.and.rejectWith(new Error('offline'));
-    const service = createService();
-    await service.signIn('a@b.c', 'pw');
+  describe('signOut', () => {
+    it('signs out of this device only, so the admin keeps their other devices', async () => {
+      const service = createService();
+      await service.signIn('a@b.c', 'pw');
 
-    await expectAsync(service.signOut()).toBeRejected();
+      await service.signOut();
 
-    expect(service.session()).toBeNull();
+      expect(fake.auth.signOut).toHaveBeenCalledOnceWith({ scope: 'local' });
+      expect(service.session()).toBeNull();
+    });
+
+    it('does not throw, and still ends the session, if the client throws', async () => {
+      spyOn(console, 'error');
+      fake.auth.signOut.and.rejectWith(new Error('boom'));
+      const service = createService();
+      await service.signIn('a@b.c', 'pw');
+
+      await expectAsync(service.signOut()).toBeResolved();
+
+      expect(service.session()).toBeNull();
+    });
+
+    // The real client does not throw when the revoke call fails: it returns { error } and, with
+    // the default global scope, leaves the stored session in place, so a reload would restore
+    // the aal2 session. This runs the real supabase-js against a network that always fails.
+    it('removes the stored session even when the network is down', async () => {
+      // Its own key: a second client on the app's default key triggers a supabase-js warning.
+      const storageKey = 'sb-signout-test';
+      const expiresAt = Math.floor(Date.now() / 1000) + 86400;
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          access_token: fakeJwt({ sub: 'u1', aal: 'aal2', exp: expiresAt }),
+          refresh_token: 'refresh',
+          token_type: 'bearer',
+          expires_in: 86400,
+          expires_at: expiresAt,
+          user: { id: 'u1', aud: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z' },
+        }),
+      );
+      try {
+        const offline = () => Promise.reject(new TypeError('Failed to fetch'));
+        const real = createClient('http://127.0.0.1:54321', 'anon-key', {
+          global: { fetch: offline },
+          auth: { storageKey, autoRefreshToken: false, detectSessionInUrl: false },
+        });
+        TestBed.configureTestingModule({ providers: [{ provide: SUPABASE_CLIENT, useValue: real }] });
+        const service = TestBed.inject(AuthService);
+        await service.init();
+        expect(service.aal()).toBe('aal2');
+
+        await service.signOut();
+
+        expect(service.session()).toBeNull();
+        expect(localStorage.getItem(storageKey)).toBeNull();
+      } finally {
+        localStorage.removeItem(storageKey);
+      }
+    });
   });
 
   it('reports not_configured when there is no Supabase client', async () => {

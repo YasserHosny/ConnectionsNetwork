@@ -124,4 +124,20 @@ describe('MfaComponent', () => {
     fixture.detectChanges();
     expect(el.querySelector('h1')?.textContent).toContain('Two-step verification');
   });
+
+  it('signs out and returns to /login, even if sign-out throws', async () => {
+    auth.nextStep.and.resolveTo('verify');
+    spyOn(console, 'error');
+    auth.signOut.and.rejectWith(new Error('boom'));
+    const fixture = await create();
+    const signOut = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Sign out'),
+    ) as HTMLButtonElement;
+
+    signOut.click();
+    await fixture.whenStable();
+
+    expect(auth.signOut).toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith('/login');
+  });
 });

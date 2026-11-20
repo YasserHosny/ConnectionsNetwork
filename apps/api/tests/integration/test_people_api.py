@@ -876,3 +876,87 @@ def test_delete_connection(client: TestClient, network: NetworkFixture) -> None:
     assert client.delete(f"/api/v1/connections/{connection_id}").status_code == 204
     assert client.get(f"/api/v1/people/{created['id']}").json()["connections"] == []
     assert client.delete(f"/api/v1/connections/{connection_id}").status_code == 404
+
+
+# -- fix round 1: PUT is atomic, duplicate contact rows ------------------------------------------
+
+
+@pytest.mark.parametrize("failing_step", ["_write_tags_and_links", "_sync_contacts"])
+def test_edit_failing_midway_leaves_the_person_unchanged(
+    network: NetworkFixture,
+    conn: psycopg.Connection[Any],
+    monkeypatch: pytest.MonkeyPatch,
+    failing_step: str,
+) -> None:
+    from connections_api.modules.people import service
+
+    client = TestClient(
+        create_app(),
+        headers={"Authorization": f"Bearer {token_for(network.admin_claims)}"},
+        raise_server_exceptions=False,
+    )
+    created = create(
+        client,
+        network,
+        headline="Before",
+        skills=[{"label": "Go", "category": "technical"}],
+        industries=["Retail"],
+        social_links=[{"kind": "x", "url": "https://x.com/a"}],
+        contacts=[{"kind": "phone", "value": "01012345678"}],
+    )["person"]
+    pid = created["id"]
+    conn.execute(
+        "update person set last_confirmed_at = now() - interval '2 years' where id = %s", (pid,)
+    )
+    before = client.get(f"/api/v1/people/{pid}").json()
+    assert before["is_stale"] is True
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(service, failing_step, boom)
+    response = client.put(
+        f"/api/v1/people/{pid}",
+        json=person_body(
+            headline="After",
+            skills=[{"label": "Rust", "category": "technical"}],
+            industries=["Banking"],
+            social_links=[{"kind": "github", "url": "https://github.com/a"}],
+            contacts=[{"kind": "email", "value": "a@example.com"}],
+        ),
+    )
+
+    assert response.status_code == 500
+    monkeypatch.undo()
+    assert client.get(f"/api/v1/people/{pid}").json() == before  # incl. skills, links, contacts,
+    # last_confirmed_at and is_stale: the deletes and the profile update were rolled back.
+
+
+@pytest.mark.parametrize("still_sent", [True, False])
+def test_edit_removes_every_duplicate_row_of_a_contact_value(
+    client: TestClient,
+    network: NetworkFixture,
+    conn: psycopg.Connection[Any],
+    still_sent: bool,
+) -> None:
+    contributor = make_person(conn, network.network_id, name_latin="Contributor")
+    created = create(client, network, contacts=[{"kind": "phone", "value": "01012345678"}])[
+        "person"
+    ]
+    pid = created["id"]
+    # The admin entered the number; a contributor later added the very same value (no uniqueness).
+    conn.execute(
+        "insert into contact_value (network_id, person_id, kind, value, added_by_person_id)"
+        " values (%s, %s, 'phone', '01012345678', %s)",
+        (network.network_id, pid, contributor),
+    )
+    assert count(conn, "select count(*) from contact_value where person_id = %s", pid) == 2
+
+    contacts = [{"kind": "phone", "value": "01012345678"}] if still_sent else []
+    response = client.put(f"/api/v1/people/{pid}", json=person_body(contacts=contacts))
+
+    assert response.status_code == 200
+    assert len(response.json()["contacts"]) == len(contacts)
+    assert count(conn, "select count(*) from contact_value where person_id = %s", pid) == len(
+        contacts
+    )

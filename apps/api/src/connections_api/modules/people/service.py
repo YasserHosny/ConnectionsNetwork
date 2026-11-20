@@ -257,13 +257,20 @@ def _sync_contacts(conn: Conn, ctx: AdminContext, person_id: UUID, data: PersonI
     admin's; values no longer sent are deleted.
     """
     incoming = _incoming_contacts(data)
-    existing = {
-        (r["kind"], r["value"]): r["id"]
-        for r in _rows(
-            conn, "select id, kind, value from contact_value where person_id = %s", (person_id,)
-        )
-    }
-    gone = [row_id for key, row_id in existing.items() if key not in incoming]
+    # contact_value has no uniqueness: a contributor may have added a value the admin entered, so
+    # one (kind, value) can be several rows.
+    existing: dict[tuple[str, str], list[UUID]] = {}
+    for r in _rows(
+        conn,
+        "select id, kind, value from contact_value where person_id = %s order by id",
+        (person_id,),
+    ):
+        existing.setdefault((r["kind"], r["value"]), []).append(r["id"])
+    gone = [
+        row_id
+        for key, ids in existing.items()
+        for row_id in (ids[1:] if key in incoming else ids)  # keep one row of a value still sent
+    ]
     if gone:
         conn.execute("delete from contact_value where id = any(%s)", (gone,))
     _insert_contacts(conn, ctx, person_id, [key for key in incoming if key not in existing])

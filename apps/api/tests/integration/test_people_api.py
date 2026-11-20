@@ -9,7 +9,6 @@ Skipped unless TEST_DATABASE_URL is set (CI always sets it).
 from __future__ import annotations
 
 import os
-import time
 from collections.abc import Iterator
 from typing import Any
 from uuid import UUID, uuid4
@@ -18,8 +17,13 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
-from integration.helpers import NetworkFixture, drop_network, make_network, make_person
-from jose import jwt
+from integration.helpers import (
+    NetworkFixture,
+    drop_network,
+    make_network,
+    make_person,
+    token_for,
+)
 
 from connections_api import db
 from connections_api.main import create_app
@@ -27,21 +31,6 @@ from connections_api.main import create_app
 DSN = os.environ.get("TEST_DATABASE_URL", "")
 
 pytestmark = pytest.mark.skipif(not DSN, reason="TEST_DATABASE_URL is not set")
-
-JWT_SECRET = "test-secret-value-not-used-anywhere-real"
-
-
-def token_for(claims: dict[str, str]) -> str:
-    return jwt.encode(
-        {
-            **claims,
-            "aud": "authenticated",
-            "iss": "http://localhost:54321/auth/v1",
-            "exp": int(time.time()) + 3600,
-        },
-        JWT_SECRET,
-        "HS256",
-    )
 
 
 @pytest.fixture

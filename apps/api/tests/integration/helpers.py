@@ -7,11 +7,15 @@ role see or write, not what the fixture code could.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
 
 import psycopg
+from jose import jwt
+
+JWT_SECRET = "test-secret-value-not-used-anywhere-real"
 
 
 @dataclass(frozen=True)
@@ -49,6 +53,20 @@ def make_network(conn: psycopg.Connection[Any], *, name: str = "Test network") -
             "role": "authenticated",
             "aal": "aal2",
         },
+    )
+
+
+def token_for(claims: dict[str, str]) -> str:
+    """A Supabase-shaped access token (HS256, the test secret) carrying `claims`."""
+    return jwt.encode(
+        {
+            **claims,
+            "aud": "authenticated",
+            "iss": "http://localhost:54321/auth/v1",
+            "exp": int(time.time()) + 3600,
+        },
+        JWT_SECRET,
+        "HS256",
     )
 
 

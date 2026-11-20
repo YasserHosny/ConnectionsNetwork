@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from connections_api.config import Settings, get_settings
 from connections_api.errors import register_exception_handlers
 from connections_api.modules.people.router import router as people_router
+from connections_api.modules.search.router import router as search_router
 from connections_api.shared.logging import TraceIdMiddleware, configure_logging
 
 API_PREFIX = "/api/v1"
@@ -41,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(router, prefix=API_PREFIX)
     app.include_router(people_router, prefix=API_PREFIX)
+    app.include_router(search_router, prefix=API_PREFIX)
     return app
 
 

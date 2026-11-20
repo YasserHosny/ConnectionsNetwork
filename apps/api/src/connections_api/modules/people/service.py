@@ -44,6 +44,15 @@ class CannotDeleteSelfError(ConflictError):
     safe_message = "The admin's own person cannot be deleted."
 
 
+def is_stale_sql(alias: str) -> str:
+    """SQL boolean expression: the person `alias` was last confirmed over 12 months ago.
+
+    The one definition of "stale" (global constraints); every query that reports `is_stale`
+    selects this rather than writing its own interval.
+    """
+    return f"{alias}.last_confirmed_at < now() - interval '12 months'"
+
+
 def display_name(name_ar: str | None, name_latin: str | None) -> str:
     """The name to show: the Arabic one when present (Arabic is the default language)."""
     return (name_ar or "").strip() or (name_latin or "").strip()
@@ -130,10 +139,7 @@ def search_tags(conn: Conn, kind: TagKind, q: str) -> list[TagOut]:
 def get_person(conn: Conn, person_id: UUID) -> PersonOut | None:
     person = _row(
         conn,
-        """
-        select p.*, p.last_confirmed_at < now() - interval '12 months' as is_stale
-        from person p where p.id = %s
-        """,
+        f"select p.*, {is_stale_sql('p')} as is_stale from person p where p.id = %s",  # noqa: S608
         (person_id,),
     )
     if person is None:

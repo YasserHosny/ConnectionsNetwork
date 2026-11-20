@@ -12,6 +12,7 @@ import type {
 import type { Observable } from 'rxjs';
 
 import { ApiClient, toApiError } from '../../core/api.client';
+import { isolate } from '../../core/bidi';
 import { ConfirmDialog, type ConfirmDialogData } from '../../layout/confirm.dialog';
 import { actionErrorKey, isPersonGone } from '../people/person-errors';
 import { REVIEW_LIST_STYLES } from './review-list.styles';
@@ -190,7 +191,7 @@ export class DuplicatesPage {
    */
   private label(person: PersonSummary, number: 1 | 2): string {
     const record = this.translate.instant('review.duplicates.record', { n: number }) as string;
-    return `${person.display_name} (${[record, this.detail(person)].filter(Boolean).join(' · ')})`;
+    return `${isolate(person.display_name)} (${[record, this.detail(person)].filter(Boolean).join(' · ')})`;
   }
 
   protected merge(keep: PersonSummary, drop: PersonSummary, keepIsFirst: boolean): void {
@@ -199,8 +200,8 @@ export class DuplicatesPage {
       bodyKey: 'review.duplicates.mergeDialog.body',
       confirmKey: 'review.duplicates.mergeDialog.confirm',
       params: {
-        keep: this.label(keep, keepIsFirst ? 1 : 2),
-        drop: this.label(drop, keepIsFirst ? 2 : 1),
+        keep: isolate(this.label(keep, keepIsFirst ? 1 : 2)),
+        drop: isolate(this.label(drop, keepIsFirst ? 2 : 1)),
       },
     };
     this.dialog
@@ -212,7 +213,7 @@ export class DuplicatesPage {
         this.run(this.api.post('/duplicates/merge', body), () => {
           this.message.set({
             key: 'review.duplicates.merged',
-            params: { keep: keep.display_name, drop: drop.display_name },
+            params: { keep: isolate(keep.display_name), drop: isolate(drop.display_name) },
           });
           // The dropped person may sit in other pairs too: ask the API again.
           this.fetch();

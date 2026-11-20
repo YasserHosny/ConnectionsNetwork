@@ -6,6 +6,7 @@ import { TranslatePipe } from '@ngx-translate/core';
 import type { ReviewPerson } from '@connections/domain-types';
 
 import { ApiClient } from '../../core/api.client';
+import { IsolatePipe } from '../../core/bidi';
 import { ConnectDialog, type ConnectDialogData } from './connect.dialog';
 import { REVIEW_LIST_STYLES } from './review-list.styles';
 
@@ -18,7 +19,7 @@ type LoadState = 'loading' | 'ready' | 'failed';
  */
 @Component({
   selector: 'app-unreachable-page',
-  imports: [MatButtonModule, RouterLink, TranslatePipe],
+  imports: [MatButtonModule, RouterLink, TranslatePipe, IsolatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <p class="intro">{{ 'review.unreachable.intro' | translate }}</p>
@@ -35,7 +36,7 @@ type LoadState = 'loading' | 'ready' | 'failed';
       }
       @case ('ready') {
         @if (connectedName(); as name) {
-          <p class="status" role="status">{{ 'review.unreachable.connected' | translate: { name } }}</p>
+          <p class="status" role="status">{{ 'review.unreachable.connected' | translate: { name: (name | isolate) } }}</p>
         }
 
         @if (people().length === 0) {

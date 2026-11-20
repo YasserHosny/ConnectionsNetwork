@@ -2,24 +2,31 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
+import { MatIconModule } from '@angular/material/icon';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type {
   AlternativePath,
   AvailableFor,
   ConnectionOut,
+  ConnectionPatch,
   PersonOut,
   Seniority,
   SkillOut,
   SocialLinkOut,
+  Strength,
 } from '@connections/domain-types';
 import { distinctUntilChanged, map } from 'rxjs';
 
 import { ApiClient, toApiError } from '../../core/api.client';
 import { AuthService } from '../../core/auth.service';
+import { IsolatePipe, isolate } from '../../core/bidi';
 import { LocaleService } from '../../core/locale.service';
 import { relativeTime } from '../../core/relative-time';
+import { ConfirmDialog, type ConfirmDialogData } from '../../layout/confirm.dialog';
+import { ConnectDialog, type ConnectDialogData } from '../review/connect.dialog';
 import { PathLineComponent } from '../search/path-line.component';
+import { webHref } from './social-links';
 import { ContactListComponent } from './contact-list.component';
 import { DeletePersonDialog } from './delete-person.dialog';
 import { actionErrorKey } from './person-errors';
@@ -34,6 +41,7 @@ import {
 
 type LoadState = 'loading' | 'ready' | 'notFound' | 'failed';
 type PathsState = 'loading' | 'ready' | 'failed';
+type Busy = 'confirm' | 'delete' | 'connection';
 
 /** The best path plus up to three alternatives: one request answers both. */
 const PATH_COUNT = 4;
@@ -42,10 +50,22 @@ const PATH_COUNT = 4;
  * A person (`/people/:id`, spec 8.7): the profile, their one-hop connections (each leads to that
  * person), the path from the admin, and edit, confirm and delete. The component is reused when
  * the admin follows a connection, so it reloads whenever the id in the route changes.
+ *
+ * Connections are managed here too: add one to anyone already in the network (the admin unless
+ * someone else is chosen), change a connection's strength, or remove one after a confirmation.
+ * After each change the person and the paths are fetched again, since paths may have moved.
  */
 @Component({
   selector: 'app-person-page',
-  imports: [MatButtonModule, RouterLink, TranslatePipe, PathLineComponent, ContactListComponent],
+  imports: [
+    MatButtonModule,
+    MatIconModule,
+    RouterLink,
+    TranslatePipe,
+    IsolatePipe,
+    PathLineComponent,
+    ContactListComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @switch (state()) {
@@ -142,7 +162,7 @@ const PATH_COUNT = 4;
                   @for (link of p.social_links; track link.id) {
                     <li>
                       <span class="kind">{{ socialKey(link) | translate }}</span>
-                      <a dir="ltr" [href]="link.url" target="_blank" rel="noopener noreferrer">{{ link.url }}</a>
+                      <a dir="ltr" [attr.href]="href(link)" target="_blank" rel="noopener noreferrer">{{ link.url }}</a>
                     </li>
                   }
                 </ul>
@@ -197,16 +217,55 @@ const PATH_COUNT = 4;
                 }
               }
 
-              <h2>{{ 'person.view.connections' | translate }}</h2>
+              <div class="connections-head">
+                <h2>{{ 'person.view.connections' | translate }}</h2>
+                <button
+                  mat-stroked-button
+                  type="button"
+                  class="add-connection"
+                  [disabled]="busy()"
+                  (click)="addConnection()"
+                >
+                  {{ 'person.view.addConnection' | translate }}
+                </button>
+              </div>
+              @if (connectionNotice(); as key) {
+                <p class="connection-notice" role="status">{{ key | translate }}</p>
+              }
               @if (p.connections.length) {
                 <ul class="connections">
                   @for (connection of p.connections; track connection.id) {
                     <li>
                       <a [routerLink]="['/people', connection.person_id]">{{ connection.display_name }}</a>
-                      <span class="chip">{{ strengthKey(connection) | translate }}</span>
+                      <select
+                        class="connection-strength"
+                        [disabled]="busy()"
+                        [attr.aria-label]="
+                          'person.view.connectionStrength' | translate: { name: (connection.display_name | isolate) }
+                        "
+                        (change)="changeStrength(connection, $event)"
+                      >
+                        @for (option of strengths; track option.value) {
+                          <option [value]="option.value" [selected]="option.value === connection.strength">
+                            {{ option.labelKey | translate }}
+                          </option>
+                        }
+                      </select>
                       @if (connection.note) {
                         <span class="note" dir="auto">{{ connection.note }}</span>
                       }
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="remove-connection"
+                        [disabled]="busy()"
+                        [attr.aria-label]="
+                          'person.view.removeConnection' | translate: { name: (connection.display_name | isolate) }
+                        "
+                        (click)="removeConnection(connection)"
+                      >
+                        <mat-icon aria-hidden="true">link_off</mat-icon>
+                      </button>
                     </li>
                   }
                 </ul>
@@ -318,6 +377,33 @@ const PATH_COUNT = 4;
     .notes {
       white-space: pre-wrap;
     }
+    .connections-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-block-start: 16px;
+    }
+    .connections-head h2 {
+      margin-block: 0;
+    }
+    .connections li {
+      align-items: center;
+    }
+    .connection-strength {
+      padding-block: 4px;
+      padding-inline: 8px;
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-radius: 8px;
+      background: var(--mat-sys-secondary-container);
+      color: var(--mat-sys-on-secondary-container);
+      font: var(--mat-sys-label-large);
+    }
+    .connection-notice {
+      margin-block: 4px;
+      color: var(--mat-sys-on-surface-variant);
+    }
   `,
 })
 export class PersonPage {
@@ -333,9 +419,12 @@ export class PersonPage {
   protected readonly pathsState = signal<PathsState>('loading');
   protected readonly paths = signal<AlternativePath[]>([]);
   protected readonly showAlternatives = signal(false);
-  protected readonly busy = signal<'confirm' | 'delete' | null>(null);
+  protected readonly busy = signal<Busy | null>(null);
   protected readonly confirmed = signal(false);
   protected readonly actionError = signal<string | null>(null);
+  /** What just happened to a connection (added, updated, removed), as an i18n key. */
+  protected readonly connectionNotice = signal<string | null>(null);
+  protected readonly strengths = STRENGTH_OPTIONS;
 
   protected readonly isSelf = computed(() => this.id() === this.auth.personId());
   protected readonly bestPath = computed(() => this.paths()[0] ?? null);
@@ -382,6 +471,7 @@ export class PersonPage {
     this.showAlternatives.set(false);
     this.confirmed.set(false);
     this.actionError.set(null);
+    this.connectionNotice.set(null);
 
     this.api.get<PersonOut>(this.path(id)).subscribe({
       next: (person) => {
@@ -394,13 +484,32 @@ export class PersonPage {
         this.state.set(toApiError(failure).code === 'not_found' ? 'notFound' : 'failed');
       },
     });
+    this.pathsState.set('loading');
+    this.fetchPaths(id);
+  }
 
+  /**
+   * After a connection changed: the person (their connections) and the paths again, keeping the
+   * page on screen. A failure leaves what is shown; the paths say so if they could not reload.
+   */
+  private refresh(): void {
+    const id = this.id();
+    this.api.get<PersonOut>(this.path(id)).subscribe({
+      next: (person) => {
+        if (this.id() === id) this.person.set(person);
+      },
+      error: () => undefined,
+    });
+    this.fetchPaths(id);
+  }
+
+  private fetchPaths(id: string): void {
+    const current = () => this.id() === id;
     if (this.isSelf()) {
       // The path from you to you is just you; there is nothing to ask for.
       this.pathsState.set('ready');
       return;
     }
-    this.pathsState.set('loading');
     this.api.get<AlternativePath[]>(`${this.path(id)}/paths`, { k: PATH_COUNT }).subscribe({
       next: (paths) => {
         if (!current()) return;
@@ -425,6 +534,57 @@ export class PersonPage {
       },
       error: (failure: unknown) => this.fail(failure),
     });
+  }
+
+  protected addConnection(): void {
+    const person = this.person();
+    if (!person) return;
+    const data: ConnectDialogData = { person: { id: person.id, name: person.display_name } };
+    this.dialog
+      .open(ConnectDialog, { data })
+      .afterClosed()
+      .subscribe((added: boolean | undefined) => {
+        if (added !== true) return;
+        this.actionError.set(null);
+        this.connectionNotice.set('person.view.connectionAdded');
+        this.refresh();
+      });
+  }
+
+  protected changeStrength(connection: ConnectionOut, event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    const strength = select.value as Strength;
+    if (strength === connection.strength) return;
+    const body: ConnectionPatch = { strength };
+    this.beginConnection();
+    this.api.patch(`/connections/${encodeURIComponent(connection.id)}`, body).subscribe({
+      next: () => this.connectionChanged('person.view.connectionUpdated'),
+      error: (failure: unknown) => {
+        this.fail(failure);
+        // Nothing changed: show the stored strength again, not the one that was chosen.
+        select.value = connection.strength;
+      },
+    });
+  }
+
+  protected removeConnection(connection: ConnectionOut): void {
+    const data: ConfirmDialogData = {
+      titleKey: 'person.view.removeConnectionDialog.title',
+      bodyKey: 'person.view.removeConnectionDialog.body',
+      confirmKey: 'person.view.removeConnectionDialog.confirm',
+      params: { name: isolate(connection.display_name) },
+    };
+    this.dialog
+      .open(ConfirmDialog, { data })
+      .afterClosed()
+      .subscribe((confirmed: boolean | undefined) => {
+        if (confirmed !== true) return;
+        this.beginConnection();
+        this.api.delete(`/connections/${encodeURIComponent(connection.id)}`).subscribe({
+          next: () => this.connectionChanged('person.view.connectionRemoved'),
+          error: (failure: unknown) => this.fail(failure),
+        });
+      });
   }
 
   protected remove(): void {
@@ -454,8 +614,21 @@ export class PersonPage {
     return labelKeyOf(SOCIAL_KIND_OPTIONS, link.kind);
   }
 
-  protected strengthKey(connection: ConnectionOut): string {
-    return labelKeyOf(STRENGTH_OPTIONS, connection.strength);
+  /** A social link as a link to open: a URL without a scheme is a web address, never an app path. */
+  protected href(link: SocialLinkOut): string | null {
+    return webHref(link.url);
+  }
+
+  private beginConnection(): void {
+    this.busy.set('connection');
+    this.actionError.set(null);
+    this.connectionNotice.set(null);
+  }
+
+  private connectionChanged(noticeKey: string): void {
+    this.busy.set(null);
+    this.connectionNotice.set(noticeKey);
+    this.refresh();
   }
 
   private deletePerson(id: string): void {
@@ -469,7 +642,7 @@ export class PersonPage {
     });
   }
 
-  private begin(action: 'confirm' | 'delete'): void {
+  private begin(action: Busy): void {
     this.busy.set(action);
     this.confirmed.set(false);
     this.actionError.set(null);

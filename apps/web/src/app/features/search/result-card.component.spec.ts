@@ -133,7 +133,7 @@ describe('ResultCardComponent', () => {
     it('names the first hop on the button', () => {
       show(FAR);
 
-      expect(button('ask-intro').textContent).toContain('Ask Ahmed for an intro');
+      expect(button('ask-intro').textContent).toContain('Ask \u2068Ahmed\u2069 for an intro');
     });
 
     it('opens WhatsApp with the message when the first hop has a whatsapp number, falling back to phone', async () => {
@@ -147,7 +147,7 @@ describe('ResultCardComponent', () => {
       await settle();
 
       const message =
-        'Hi Ahmed, do you know someone who can introduce me to Sara Mahmoud? Karim knows Sara Mahmoud.';
+        'Hi \u2068Ahmed\u2069, do you know someone who can introduce me to \u2068Sara Mahmoud\u2069? \u2068Karim\u2069 knows \u2068Sara Mahmoud\u2069.';
       expect(open).toHaveBeenCalledOnceWith(
         `https://wa.me/201112223333?text=${encodeURIComponent(message)}`,
         '_blank',
@@ -174,7 +174,7 @@ describe('ResultCardComponent', () => {
 
       expect(open).not.toHaveBeenCalled();
       expect(write).toHaveBeenCalledOnceWith(
-        'Hi Ahmed, do you know someone who can introduce me to Sara Mahmoud? Karim knows Sara Mahmoud.',
+        'Hi \u2068Ahmed\u2069, do you know someone who can introduce me to \u2068Sara Mahmoud\u2069? \u2068Karim\u2069 knows \u2068Sara Mahmoud\u2069.',
       );
       expect(el().querySelector('.intro-status')?.textContent).toContain('The message was copied');
     });
@@ -187,7 +187,7 @@ describe('ResultCardComponent', () => {
       await settle();
 
       expect(el().querySelector('.intro-status')?.textContent).toContain('Could not copy automatically');
-      expect((el().querySelector('textarea.intro-text') as HTMLTextAreaElement).value).toContain('Hi Ahmed');
+      expect((el().querySelector('textarea.intro-text') as HTMLTextAreaElement).value).toContain('Hi \u2068Ahmed\u2069');
     });
 
     it('offers an Open WhatsApp link when the browser blocks the window', async () => {
@@ -209,7 +209,7 @@ describe('ResultCardComponent', () => {
       http.expectOne('/api/v1/people/ahmed').flush(person('ahmed', []));
       await settle();
 
-      expect((navigator.clipboard.writeText as jasmine.Spy).calls.mostRecent().args[0]).toContain('أهلًا Ahmed');
+      expect((navigator.clipboard.writeText as jasmine.Spy).calls.mostRecent().args[0]).toContain('أهلًا \u2068Ahmed\u2069');
     });
 
     it('goes to /mfa when the MFA step has lapsed', async () => {
@@ -262,7 +262,7 @@ describe('ResultCardComponent', () => {
         ['Phone', '01012345678'],
         ['Email', 'sara@example.com'],
       ]);
-      expect(el().querySelector('.contacts a[href="tel:01012345678"]')).not.toBeNull();
+      expect(el().querySelector('.contacts a[href="tel:+201012345678"]')).not.toBeNull();
       expect(el().querySelector('.contacts a[href="mailto:sara@example.com"]')).not.toBeNull();
 
       button('contact-direct').click();

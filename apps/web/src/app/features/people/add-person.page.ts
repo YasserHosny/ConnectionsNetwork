@@ -7,6 +7,7 @@ import { type Observable, throwError } from 'rxjs';
 
 import { ApiClient, ApiError } from '../../core/api.client';
 import { AuthService } from '../../core/auth.service';
+import { IsolatePipe } from '../../core/bidi';
 import { MATCHED_ON_KEYS, type PersonFormValue, toNewPersonRequest } from './person-form.model';
 import { PersonFormComponent } from './person-form.component';
 
@@ -19,14 +20,14 @@ import { PersonFormComponent } from './person-form.component';
  */
 @Component({
   selector: 'app-add-person-page',
-  imports: [MatButtonModule, RouterLink, TranslatePipe, PersonFormComponent],
+  imports: [MatButtonModule, RouterLink, TranslatePipe, IsolatePipe, PersonFormComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1>{{ 'pages.add.title' | translate }}</h1>
 
     @if (created(); as result) {
       <section class="saved">
-        <p role="status">{{ 'person.saved' | translate: { name: result.person.display_name } }}</p>
+        <p role="status">{{ 'person.saved' | translate: { name: (result.person.display_name | isolate) } }}</p>
 
         <div class="duplicates">
           <h2>{{ 'person.duplicates.title' | translate }}</h2>

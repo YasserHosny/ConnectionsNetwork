@@ -6,13 +6,14 @@ import { TranslatePipe } from '@ngx-translate/core';
 import type { CreateLinkRequest, IssuedLink, LinkOut } from '@connections/domain-types';
 
 import { ApiClient, toApiError } from '../../core/api.client';
+import { isolate } from '../../core/bidi';
 import { formatDate } from '../../core/format-date';
 import { LocaleService } from '../../core/locale.service';
 import { ConfirmDialog, type ConfirmDialogData } from '../../layout/confirm.dialog';
 import { actionErrorKey } from '../people/person-errors';
 import type { ConnectTarget } from '../people/person-form.model';
 import { PersonPickerComponent } from '../people/person-picker.component';
-import { LinkIssuedDialog, type LinkIssuedDialogData } from './link-issued.dialog';
+import { LINK_ISSUED_DIALOG_CONFIG, LinkIssuedDialog, type LinkIssuedDialogData } from './link-issued.dialog';
 
 type LoadState = 'loading' | 'ready' | 'failed';
 type LinkStatus = 'active' | 'expired' | 'revoked';
@@ -304,7 +305,7 @@ export class LinksPage {
       titleKey: 'links.revokeDialog.title',
       bodyKey: 'links.revokeDialog.body',
       confirmKey: 'links.revokeDialog.confirm',
-      params: { name: link.display_name },
+      params: { name: isolate(link.display_name) },
     };
     this.dialog
       .open(ConfirmDialog, { data })
@@ -328,7 +329,7 @@ export class LinksPage {
   /** Hands the URL to the dialog and keeps no copy: it is shown once and cannot be fetched again. */
   private showIssued(name: string, issued: IssuedLink): void {
     const data: LinkIssuedDialogData = { name, url: issued.url, expiresAt: issued.expires_at };
-    this.dialog.open(LinkIssuedDialog, { data });
+    this.dialog.open(LinkIssuedDialog, { ...LINK_ISSUED_DIALOG_CONFIG, data });
   }
 
   private begin(link: LinkOut | null, action: Action): void {

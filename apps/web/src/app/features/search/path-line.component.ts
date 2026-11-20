@@ -3,16 +3,18 @@ import { RouterLink } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type { PathNode } from '@connections/domain-types';
 
+import { IsolatePipe } from '../../core/bidi';
+
 /**
  * A path as a line: "You ← Ahmed ← Karim ← Sara" (spec 8.6). The owner comes first and is shown as
  * "You"; everyone else links to their page. The arrow points back toward you, so it flips in RTL.
  */
 @Component({
   selector: 'app-path-line',
-  imports: [RouterLink, TranslatePipe],
+  imports: [RouterLink, TranslatePipe, IsolatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ol class="path-line" [attr.aria-label]="'search.path.label' | translate: { name: targetName() }">
+    <ol class="path-line" [attr.aria-label]="'search.path.label' | translate: { name: (targetName() | isolate) }">
       <li class="you">{{ 'search.path.you' | translate }}</li>
       @for (node of others(); track $index) {
         <li>

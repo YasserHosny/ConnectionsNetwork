@@ -28,6 +28,9 @@ const OTHER: DuplicatePair = {
   matched_on: ['social_link'],
 };
 
+/** Text without the bidi isolates the page puts around names (core/bidi): for reading wording. */
+const plain = (text: string | null | undefined) => (text ?? '').replace(/[\u2068\u2069]/g, '');
+
 describe('DuplicatesPage', () => {
   let harness: RouterTestingHarness;
   let http: HttpTestingController;
@@ -127,7 +130,7 @@ describe('DuplicatesPage', () => {
       http.expectOne('/api/v1/duplicates').flush([]);
       await settle();
       expect(el().querySelector('.empty')).not.toBeNull();
-      expect(el().querySelector('.status')?.textContent).toContain('Merged');
+      expect(plain(el().querySelector('.status')?.textContent)).toContain('Merged');
     });
   }
 
@@ -137,11 +140,23 @@ describe('DuplicatesPage', () => {
     keepButton(1).click();
     await waitFor(fixture(), () => dialog());
 
-    expect(dialog()?.querySelector('h2')?.textContent).toContain('Keep Sarah M. (Record 2)?');
-    const body = dialog()?.querySelector('mat-dialog-content')?.textContent ?? '';
+    expect(plain(dialog()?.querySelector('h2')?.textContent)).toContain('Keep Sarah M. (Record 2)?');
+    const body = plain(dialog()?.querySelector('mat-dialog-content')?.textContent);
     expect(body).toContain('Sarah M. (Record 2) keeps its own details');
     expect(body).toContain('Sara Mahmoud (Record 1 · Marketing · Cairo) only fills in what Sarah M. (Record 2) is missing');
     expect(body).toContain('Sara Mahmoud (Record 1 · Marketing · Cairo) is then deleted');
+  });
+
+  it('isolates every name in the merge dialog, so an Arabic name keeps its own direction', async () => {
+    await open();
+
+    keepButton(1).click();
+    await waitFor(fixture(), () => dialog());
+
+    const title = dialog()?.querySelector('h2')?.textContent ?? '';
+    expect(title).toContain('Keep \u2068\u2068Sarah M.\u2069 (Record 2)\u2069?');
+    const body = dialog()?.querySelector('mat-dialog-content')?.textContent ?? '';
+    expect(body).toContain('\u2068\u2068Sara Mahmoud\u2069 (Record 1 · Marketing · Cairo)\u2069 only fills in');
   });
 
   it('says what the merge really does: the kept record wins, the other only fills blanks', async () => {
@@ -150,7 +165,7 @@ describe('DuplicatesPage', () => {
     keepButton(0).click();
     await waitFor(fixture(), () => dialog());
 
-    const body = dialog()?.querySelector('mat-dialog-content')?.textContent ?? '';
+    const body = plain(dialog()?.querySelector('mat-dialog-content')?.textContent);
     expect(body).toContain('keeps its own details');
     expect(body).toContain('only fills in what');
     expect(body).toContain('Connections, skills and contact details are combined');
@@ -167,8 +182,8 @@ describe('DuplicatesPage', () => {
     for (const side of [0, 1]) {
       keepButton(side).click();
       await waitFor(fixture(), () => dialog());
-      titles.push(dialog()?.querySelector('h2')?.textContent ?? '');
-      bodies.push(dialog()?.querySelector('mat-dialog-content')?.textContent ?? '');
+      titles.push(plain(plain(dialog()?.querySelector('h2')?.textContent)));
+      bodies.push(plain(dialog()?.querySelector('mat-dialog-content')?.textContent));
       dialogButton('dialog-cancel')?.click();
       await closeDialog();
     }
@@ -210,7 +225,7 @@ describe('DuplicatesPage', () => {
 
     expect(el().querySelectorAll('.pair').length).toBe(1);
     expect(el().querySelector('.pair')?.textContent).toContain('Omar Ali');
-    expect(el().querySelector('.status')?.textContent).toContain('different people');
+    expect(plain(el().querySelector('.status')?.textContent)).toContain('different people');
   });
 
   it('explains that a record belonging to a sign-in account cannot be merged away', async () => {

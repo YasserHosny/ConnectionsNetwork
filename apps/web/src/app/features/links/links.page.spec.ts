@@ -148,6 +148,14 @@ describe('LinksPage', () => {
     expect(dialog()?.querySelector('button.copy-link')).not.toBeNull();
     expect((dialog()?.querySelector('a.share-whatsapp') as HTMLAnchorElement).href).toContain('https://wa.me/?text=');
     expect(dialog()?.textContent).toContain('shown only once');
+    expect(dialog()?.textContent).toContain('Link for \u2068Layla Hassan\u2069');
+
+    // Shown only once, so neither Escape nor a click beside it may close it: only Done.
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+    (document.querySelector('.cdk-overlay-backdrop') as HTMLElement | null)?.click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    fixture().detectChanges();
+    expect(dialog()).not.toBeNull();
 
     // The list is refreshed from the API, which never returns the URL.
     http.expectOne('/api/v1/links').flush([{ ...ACTIVE, link_id: 'l-9', person_id: 'p-9', display_name: 'Layla Hassan', people_added: 0 }]);
@@ -206,7 +214,7 @@ describe('LinksPage', () => {
     await settle();
 
     await waitFor(fixture(), () => dialog());
-    expect(dialog()?.textContent).toContain('Link for Mona Said');
+    expect(dialog()?.textContent).toContain('Link for \u2068Mona Said\u2069');
     expect((dialog()?.querySelector('input.link-url') as HTMLInputElement).value).toBe(SECRET_URL);
 
     http.expectOne('/api/v1/links').flush([ACTIVE, { ...EXPIRED, expires_at: daysFromNow(30) }, REVOKED]);
@@ -238,7 +246,7 @@ describe('LinksPage', () => {
 
     (row('l-1').querySelector('button.revoke') as HTMLButtonElement).click();
     await waitFor(fixture(), () => dialog());
-    expect(dialog()?.textContent).toContain('Revoke the link for Karim Adel?');
+    expect(dialog()?.textContent).toContain('Revoke the link for \u2068Karim Adel\u2069?');
     dialogButton('dialog-cancel')?.click();
     await waitFor(fixture(), () => !dialog());
     http.expectNone((r) => r.method === 'POST');

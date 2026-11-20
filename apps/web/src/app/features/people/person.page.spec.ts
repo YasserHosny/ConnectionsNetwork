@@ -137,6 +137,23 @@ describe('PersonPage', () => {
     expect(el().querySelector('.stale-badge')).toBeNull();
   });
 
+  it('opens a social link saved without a scheme on the web, and never a script link', async () => {
+    await harness.navigateByUrl('/people/p-7', PersonPage);
+    fixture().detectChanges();
+    http.expectOne('/api/v1/people/p-7').flush({
+      ...PERSON,
+      social_links: [
+        { id: 's1', kind: 'linkedin', url: 'linkedin.com/in/sara' },
+        { id: 's2', kind: 'website', url: 'javascript:alert(1)' },
+      ],
+    });
+    http.expectOne('/api/v1/people/p-7/paths?k=4').flush(PATHS);
+    await settle();
+
+    const links = Array.from(el().querySelectorAll('.links a'));
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['https://linkedin.com/in/sara', null]);
+  });
+
   it('marks a stale profile', async () => {
     await harness.navigateByUrl('/people/p-7', PersonPage);
     http.expectOne('/api/v1/people/p-7').flush({ ...PERSON, is_stale: true });
@@ -151,9 +168,115 @@ describe('PersonPage', () => {
 
     const rows = Array.from(el().querySelectorAll('.connections li'));
     expect(rows.map((r) => r.querySelector('a')?.getAttribute('href'))).toEqual(['/people/karim', '/people/omar']);
-    expect(rows[0].textContent).toContain('Strong');
+    expect((rows[0].querySelector('select.connection-strength') as HTMLSelectElement).value).toBe('strong');
     expect(rows[0].textContent).toContain('old friends');
-    expect(rows[1].textContent).toContain('Weak');
+    expect((rows[1].querySelector('select.connection-strength') as HTMLSelectElement).value).toBe('weak');
+  });
+
+  describe('managing connections', () => {
+    /** After a change the page asks again for the person and the paths, without blanking. */
+    async function expectRefresh(): Promise<void> {
+      http.expectOne('/api/v1/people/p-7').flush(PERSON);
+      http.expectOne('/api/v1/people/p-7/paths?k=4').flush(PATHS);
+      await settle();
+      expect(el().querySelector('h1')?.textContent).toContain('Sara Mahmoud');
+    }
+
+    it('adds a connection to someone already in the network, to you by default', async () => {
+      await open();
+      button('add-connection').click();
+      const container = await until(dialog);
+
+      expect(container.textContent).toContain('Connect \u2068Sara Mahmoud\u2069');
+      expect(container.textContent).toContain('Anyone you could message who would know who you are.');
+      (container.querySelector('mat-radio-button[value="normal"] input') as HTMLInputElement).click();
+      (container.querySelector('button.dialog-submit') as HTMLButtonElement).click();
+
+      const post = http.expectOne('/api/v1/connections');
+      expect(post.request.method).toBe('POST');
+      expect(post.request.body).toEqual({ person_a: 'p-7', person_b: ADMIN_PERSON_ID, strength: 'normal' });
+      post.flush({ id: 'k3' }, { status: 201, statusText: 'Created' });
+      await until(() => !dialog());
+
+      await expectRefresh();
+      expect(el().querySelector('.connection-notice')?.textContent).toContain('Connection added.');
+    });
+
+    it('says so, in the dialog, when the two are already connected', async () => {
+      await open();
+      button('add-connection').click();
+      const container = await until(dialog);
+      (container.querySelector('mat-radio-button[value="weak"] input') as HTMLInputElement).click();
+      (container.querySelector('button.dialog-submit') as HTMLButtonElement).click();
+
+      http
+        .expectOne('/api/v1/connections')
+        .flush(
+          { code: 'conflict', message: 'Request conflicts.', details: { reason: 'already_connected' }, trace_id: 't' },
+          { status: 409, statusText: 'Conflict' },
+        );
+      await settle();
+
+      expect(dialog()?.textContent).toContain('These two people are already connected.');
+      (document.querySelector('.dialog-cancel') as HTMLButtonElement).click();
+      await until(() => !dialog());
+    });
+
+    it('changes the strength of a connection', async () => {
+      await open();
+      const select = el().querySelector('.connections li select.connection-strength') as HTMLSelectElement;
+      expect(select.getAttribute('aria-label')).toContain('Karim');
+
+      select.value = 'normal';
+      select.dispatchEvent(new Event('change'));
+
+      const patch = http.expectOne('/api/v1/connections/k1');
+      expect(patch.request.method).toBe('PATCH');
+      expect(patch.request.body).toEqual({ strength: 'normal' });
+      patch.flush({ id: 'k1' });
+      await expectRefresh();
+      expect(el().querySelector('.connection-notice')?.textContent).toContain('Connection updated.');
+    });
+
+    it('shows a translated error and the stored strength again when the change fails', async () => {
+      await open();
+      const select = el().querySelector('.connections li select.connection-strength') as HTMLSelectElement;
+      select.value = 'weak';
+      select.dispatchEvent(new Event('change'));
+
+      http.expectOne('/api/v1/connections/k1').flush(null, { status: 503, statusText: 'x' });
+      await settle();
+
+      expect(el().querySelector('.action-error')?.textContent).toContain('Could not reach the server');
+      expect((el().querySelector('.connections li select.connection-strength') as HTMLSelectElement).value).toBe(
+        'strong',
+      );
+    });
+
+    it('removes a connection after confirmation', async () => {
+      await open();
+      (el().querySelector('.connections li button.remove-connection') as HTMLButtonElement).click();
+      const container = await until(dialog);
+
+      expect(container.textContent).toContain('Remove the connection with \u2068Karim\u2069?');
+      (document.querySelector('.dialog-confirm') as HTMLButtonElement).click();
+      const del = await deleteRequest();
+      expect(del.request.url).toBe('/api/v1/connections/k1');
+      del.flush(null, { status: 204, statusText: 'No Content' });
+
+      await expectRefresh();
+      expect(el().querySelector('.connection-notice')?.textContent).toContain('Connection removed.');
+    });
+
+    it('removes nothing when the confirmation is cancelled', async () => {
+      await open();
+      (el().querySelector('.connections li button.remove-connection') as HTMLButtonElement).click();
+      await until(dialog);
+      (document.querySelector('.dialog-cancel') as HTMLButtonElement).click();
+      await until(() => !dialog());
+
+      expect(http.match((r) => r.method === 'DELETE').length).toBe(0);
+    });
   });
 
   it('shows the best path from you, and the other paths on request', async () => {
@@ -278,7 +401,7 @@ describe('PersonPage', () => {
       button('delete').click();
       await until(dialog);
 
-      expect(dialog()?.textContent).toContain('Delete Sara Mahmoud?');
+      expect(dialog()?.textContent).toContain('Delete \u2068Sara Mahmoud\u2069?');
       (document.querySelector('.dialog-cancel') as HTMLButtonElement).click();
       await until(() => !dialog());
 

@@ -24,6 +24,23 @@ describe('buildLinkShareMessage', () => {
   });
 });
 
+describe('the update-link message (stale review)', () => {
+  it('says the link adds people and asks for changes as a reply, in English', () => {
+    const text = buildLinkShareMessage('en', URL_WITH_TOKEN, 'update');
+
+    expect(text).toContain('Just reply here and I will update it.');
+    expect(text).toContain('add the people you know');
+    expect(text.endsWith(URL_WITH_TOKEN)).toBeTrue();
+  });
+
+  it('and in Arabic', () => {
+    const text = buildLinkShareMessage('ar', URL_WITH_TOKEN, 'update');
+
+    expect(text).toContain('رُدّ هنا');
+    expect(text).toContain(URL_WITH_TOKEN);
+  });
+});
+
 describe('whatsappShareUrl', () => {
   it('opens WhatsApp with the text and no recipient: the admin picks the chat there', () => {
     const text = buildLinkShareMessage('en', URL_WITH_TOKEN);

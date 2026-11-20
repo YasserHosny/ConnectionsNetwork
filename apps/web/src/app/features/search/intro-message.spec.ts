@@ -1,8 +1,10 @@
 import { arCatalog } from '@connections/i18n';
 
-import { buildIntroMessage, pickWhatsappNumber, whatsappUrl } from './intro-message';
+import { buildIntroMessage, phoneDigits, pickWhatsappNumber, whatsappUrl } from './intro-message';
 
 const node = (display_name: string) => ({ display_name });
+/** A name as the message carries it: isolated, so it keeps its own direction (core/bidi). */
+const iso = (name: string) => `\u2068${name}\u2069`;
 
 const FOUR = [node('أنا'), node('أحمد'), node('كريم'), node('سارة محمود')];
 
@@ -23,14 +25,30 @@ describe('buildIntroMessage', () => {
     const text = buildIntroMessage('en', [node('Me'), node('Ahmed'), node('Karim'), node('Sara Mahmoud')]);
 
     expect(text).toBe(
-      'Hi Ahmed, do you know someone who can introduce me to Sara Mahmoud? Karim knows Sara Mahmoud.',
+      `Hi ${iso('Ahmed')}, do you know someone who can introduce me to ${iso('Sara Mahmoud')}? ` +
+        `${iso('Karim')} knows ${iso('Sara Mahmoud')}.`,
     );
   });
 
-  it('for a 3-node path asks the first hop, who already knows the target, without the "knows" line', () => {
+  it('for a 3-node path asks the first hop, who knows the target, to introduce them directly', () => {
     const text = buildIntroMessage('en', [node('Me'), node('Ahmed'), node('Sara Mahmoud')]);
 
-    expect(text).toBe('Hi Ahmed, do you know someone who can introduce me to Sara Mahmoud?');
+    expect(text).toBe(`Hi ${iso('Ahmed')}, could you introduce me to ${iso('Sara Mahmoud')}?`);
+  });
+
+  it('ar for a 3-node path asks directly too, from the Arabic catalogue', () => {
+    const text = buildIntroMessage('ar', [node('أنا'), node('أحمد'), node('سارة')]);
+
+    expect(text.startsWith(arCatalog.search.intro.askDirect.split('{{')[0])).toBeTrue();
+    expect(text).toContain(iso('أحمد'));
+    expect(text).toContain(iso('سارة'));
+    expect(text).not.toContain('هل تعرف أحدًا');
+  });
+
+  it('ar says who knows the target without assuming anyone\'s gender', () => {
+    const text = buildIntroMessage('ar', FOUR);
+
+    expect(text).toContain(`${iso('كريم')} على معرفة بـ${iso('سارة محمود')}`);
   });
 
   it('for a 2-node path (direct) is not generated', () => {
@@ -42,31 +60,55 @@ describe('buildIntroMessage', () => {
   it('does not expand placeholders that appear inside a name', () => {
     const text = buildIntroMessage('en', [node('Me'), node('{{target}}'), node('Sara')]);
 
-    expect(text).toBe('Hi {{target}}, do you know someone who can introduce me to Sara?');
+    expect(text).toBe(`Hi ${iso('{{target}}')}, could you introduce me to ${iso('Sara')}?`);
   });
 });
 
 describe('whatsappUrl', () => {
-  it('strips non-digits from the number and encodes the text', () => {
-    expect(whatsappUrl('+20 10 1234-5678', 'Hi Ahmed & co?')).toBe(
+  // The same rules as the API's normalize_phone (rulings R7, R8): the number WhatsApp opens is the
+  // one the duplicate check would see.
+  const cases: [string, string][] = [
+    ['+20 10 1234-5678', '201012345678'],
+    ['010 1234 5678', '201012345678'],
+    ['00201012345678', '201012345678'],
+    ['٠١٠١٢٣٤٥٦٧٨', '201012345678'],
+    ['۰۰۲۰۱۰۱۲۳۴۵۶۷۸', '201012345678'],
+    ['201012345678', '201012345678'],
+    ['1012345678', '201012345678'],
+    ['+20 (0)10 1234 5678', '201012345678'],
+    ['+44 7911 123456', '447911123456'],
+    ['0044 7911 123456', '447911123456'],
+    ['+44 (0)7911 123456', '447911123456'],
+  ];
+  for (const [typed, digits] of cases) {
+    it(`opens ${typed} as wa.me/${digits}`, () => {
+      expect(whatsappUrl(typed, 'x')).toBe(`https://wa.me/${digits}?text=x`);
+    });
+  }
+
+  it('encodes the text, and leaves it off when there is none', () => {
+    expect(whatsappUrl('+201012345678', 'Hi Ahmed & co?')).toBe(
       'https://wa.me/201012345678?text=Hi%20Ahmed%20%26%20co%3F',
     );
-  });
-
-  it('turns a local Egyptian number into an international one (default country +20)', () => {
-    expect(whatsappUrl('010 1234 5678', 'x')).toBe('https://wa.me/201012345678?text=x');
-  });
-
-  it('drops a 00 international prefix', () => {
-    expect(whatsappUrl('00201012345678', 'x')).toBe('https://wa.me/201012345678?text=x');
-  });
-
-  it('reads Arabic-Indic digits', () => {
-    expect(whatsappUrl('٠١٠١٢٣٤٥٦٧٨', 'x')).toBe('https://wa.me/201012345678?text=x');
-  });
-
-  it('leaves the text off when there is none', () => {
     expect(whatsappUrl('+201012345678', '')).toBe('https://wa.me/201012345678');
+  });
+
+  it('opens nobody when the number cannot be placed: never a stranger', () => {
+    for (const value of ['', 'call me', '0000', '12345', '9876543210', '+', 'ext. 12']) {
+      expect(whatsappUrl(value, 'x')).withContext(value).toBeNull();
+    }
+  });
+});
+
+describe('phoneDigits (tel: links)', () => {
+  it('is the international form when the number can be placed, Arabic-Indic digits included', () => {
+    expect(phoneDigits('٠١٠١٢٣٤٥٦٧٨')).toBe('+201012345678');
+    expect(phoneDigits('+44 (0)7911 123456')).toBe('+447911123456');
+  });
+
+  it('keeps a short local number as its digits, and has nothing for no digits', () => {
+    expect(phoneDigits('02 555 ١٢٣')).toBe('02555123');
+    expect(phoneDigits('n/a')).toBeNull();
   });
 });
 

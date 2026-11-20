@@ -95,7 +95,7 @@ describe('StalePage', () => {
 
     expect(rows().length).toBe(1);
     expect(rows()[0].textContent).toContain('Mona Said');
-    expect(el().querySelector('.status')?.textContent).toContain('Confirmed Karim Adel');
+    expect(el().querySelector('.status')?.textContent).toContain('Confirmed \u2068Karim Adel\u2069');
   });
 
   it('creates an update link for that person and offers it on WhatsApp and to copy, in a dialog', async () => {
@@ -109,11 +109,20 @@ describe('StalePage', () => {
     await settle();
 
     await waitFor(fixture(), () => dialog());
-    expect(dialog()?.textContent).toContain('Link for Karim Adel');
+    expect(dialog()?.textContent).toContain('Link for \u2068Karim Adel\u2069');
     expect((dialog()?.querySelector('input.link-url') as HTMLInputElement).value).toBe(SECRET_URL);
     const share = dialog()?.querySelector('a.share-whatsapp') as HTMLAnchorElement;
     expect(share.href.startsWith('https://wa.me/?text=')).toBeTrue();
-    expect(decodeURIComponent(share.href.split('?text=')[1])).toContain(SECRET_URL);
+    const message = decodeURIComponent(share.href.split('?text=')[1]);
+    expect(message).toContain(SECRET_URL);
+    // The link adds people; it cannot edit their own profile, so the message asks them to reply.
+    expect(message).toContain('Just reply here and I will update it.');
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+    (document.querySelector('.cdk-overlay-backdrop') as HTMLElement | null)?.click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    fixture().detectChanges();
+    expect(dialog()).not.toBeNull();
     expect(share.target).toBe('_blank');
     expect(share.rel).toContain('noopener');
 

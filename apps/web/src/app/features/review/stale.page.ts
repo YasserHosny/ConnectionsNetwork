@@ -6,9 +6,10 @@ import { TranslatePipe } from '@ngx-translate/core';
 import type { CreateLinkRequest, IssuedLink, ReviewPerson } from '@connections/domain-types';
 
 import { ApiClient, toApiError } from '../../core/api.client';
+import { IsolatePipe } from '../../core/bidi';
 import { LocaleService } from '../../core/locale.service';
 import { relativeTime } from '../../core/relative-time';
-import { LinkIssuedDialog, type LinkIssuedDialogData } from '../links/link-issued.dialog';
+import { LINK_ISSUED_DIALOG_CONFIG, LinkIssuedDialog, type LinkIssuedDialogData } from '../links/link-issued.dialog';
 import { actionErrorKey } from '../people/person-errors';
 import { REVIEW_LIST_STYLES } from './review-list.styles';
 
@@ -22,7 +23,7 @@ type Action = 'confirm' | 'link';
  */
 @Component({
   selector: 'app-stale-page',
-  imports: [MatButtonModule, RouterLink, TranslatePipe],
+  imports: [MatButtonModule, RouterLink, TranslatePipe, IsolatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <p class="intro">{{ 'review.stale.intro' | translate }}</p>
@@ -39,7 +40,7 @@ type Action = 'confirm' | 'link';
       }
       @case ('ready') {
         @if (confirmedName(); as name) {
-          <p class="status" role="status">{{ 'review.stale.confirmed' | translate: { name } }}</p>
+          <p class="status" role="status">{{ 'review.stale.confirmed' | translate: { name: (name | isolate) } }}</p>
         }
         @if (error(); as key) {
           <p class="error" role="alert">{{ key | translate }}</p>
@@ -139,9 +140,10 @@ export class StalePage {
           name: person.display_name,
           url: issued.url,
           expiresAt: issued.expires_at,
+          purpose: 'update',
         };
         // The URL lives in the dialog only; this page keeps nothing of it.
-        this.dialog.open(LinkIssuedDialog, { data });
+        this.dialog.open(LinkIssuedDialog, { ...LINK_ISSUED_DIALOG_CONFIG, data });
       },
       error: (failure: unknown) => this.fail(failure),
     });

@@ -106,7 +106,7 @@ describe('UnreachablePage', () => {
     await openConnectDialog(1);
 
     const text = dialog()?.textContent ?? '';
-    expect(text).toContain('Connect Mona Said');
+    expect(text).toContain('Connect \u2068Mona Said\u2069');
     expect(text).toContain('Connection strength');
     expect(text).toContain('People you met only once: weak.');
     expect(text).toContain('Me (default)');
@@ -138,7 +138,7 @@ describe('UnreachablePage', () => {
     await waitFor(fixture(), () => !dialog());
     expect(rows().length).toBe(1);
     expect(rows()[0].textContent).toContain('Mona Said');
-    expect(el().querySelector('.status')?.textContent).toContain('Connected Omar Ali');
+    expect(el().querySelector('.status')?.textContent).toContain('Connected \u2068Omar Ali\u2069');
   });
 
   it('connects the person to someone found by name', async () => {

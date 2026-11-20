@@ -160,6 +160,17 @@
       "deleting": "Deleting…",
       "connections": "Connections",
       "noConnections": "No connections yet.",
+      "addConnection": "Add connection",
+      "connectionStrength": "Strength of the connection with {{name}}",
+      "removeConnection": "Remove the connection with {{name}}",
+      "removeConnectionDialog": {
+        "title": "Remove the connection with {{name}}?",
+        "body": "{{name}} stays in your network; only this connection is removed, and with it any path that went through it.",
+        "confirm": "Remove"
+      },
+      "connectionAdded": "Connection added.",
+      "connectionUpdated": "Connection updated.",
+      "connectionRemoved": "Connection removed.",
       "pathTitle": "Your path to this person",
       "isYou": "This is you.",
       "noPath": "Not connected to you.",
@@ -226,6 +237,7 @@
     "hideContacts": "Hide contact details",
     "intro": {
       "ask": "Hi {{firstHop}}, do you know someone who can introduce me to {{target}}?",
+      "askDirect": "Hi {{firstHop}}, could you introduce me to {{target}}?",
       "knows": "{{knower}} knows {{target}}.",
       "copied": "The message was copied. Paste it into a chat with {{name}}.",
       "copyFailed": "Could not copy automatically. Select the text below and copy it.",
@@ -264,7 +276,7 @@
       }
     },
     "stale": {
-      "intro": "These people have not been confirmed for over a year. Confirm that their details are right, edit them, or send them a link to update their own.",
+      "intro": "These people have not been confirmed for over a year. Confirm that their details are right, or edit them. \"Send update link\" gives them a link to add the people they know, with a message asking them to reply with any change to their own details, so you can edit it.",
       "empty": "Everyone is up to date.",
       "confirm": "Confirm",
       "confirming": "Confirming…",
@@ -328,7 +340,8 @@
       "done": "Done"
     },
     "share": {
-      "message": "Hi, I am adding the people I know to my network. Please add the people you know here: {{url}}"
+      "message": "Hi, I am adding the people I know to my network. Please add the people you know here: {{url}}",
+    "updateMessage": "Hi, I am updating my network. Has anything about you changed (job, company, city, phone)? Just reply here and I will update it. You can also add the people you know here: {{url}}"
     },
     "errors": {
       "notFound": "This link was not found. The list was refreshed."

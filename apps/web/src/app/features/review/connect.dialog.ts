@@ -7,6 +7,7 @@ import type { ConnectionIn, Strength } from '@connections/domain-types';
 
 import { ApiClient, toApiError } from '../../core/api.client';
 import { AuthService } from '../../core/auth.service';
+import { IsolatePipe } from '../../core/bidi';
 import { PersonPickerComponent } from '../people/person-picker.component';
 import { actionErrorKey } from '../people/person-errors';
 import { type ConnectTarget, STRENGTH_OPTIONS } from '../people/person-form.model';
@@ -17,16 +18,16 @@ export interface ConnectDialogData {
 }
 
 /**
- * "Connect…" on an unreachable person (spec 9): pick who they are connected to (the admin unless
- * someone else is chosen) and how strongly, then `POST /connections`. Closes with true once the
- * connection exists.
+ * "Connect…" on an unreachable person (spec 9), and "Add connection" on a person page: pick who
+ * they are connected to (the admin unless someone else is chosen) and how strongly, then
+ * `POST /connections`. Closes with true once the connection exists.
  */
 @Component({
   selector: 'app-connect-dialog',
-  imports: [MatButtonModule, MatDialogModule, MatRadioModule, TranslatePipe, PersonPickerComponent],
+  imports: [MatButtonModule, MatDialogModule, MatRadioModule, TranslatePipe, IsolatePipe, PersonPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <h2 mat-dialog-title>{{ 'review.unreachable.dialog.title' | translate: { name: data.person.name } }}</h2>
+    <h2 mat-dialog-title>{{ 'review.unreachable.dialog.title' | translate: { name: (data.person.name | isolate) } }}</h2>
     <mat-dialog-content>
       <app-person-picker [(value)]="target" />
 
@@ -46,7 +47,7 @@ export interface ConnectDialogData {
       </fieldset>
 
       @if (error(); as key) {
-        <p class="dialog-error" role="alert">{{ key | translate: { name: data.person.name } }}</p>
+        <p class="dialog-error" role="alert">{{ key | translate: { name: (data.person.name | isolate) } }}</p>
       }
     </mat-dialog-content>
     <mat-dialog-actions align="end">

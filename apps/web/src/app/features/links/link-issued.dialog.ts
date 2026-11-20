@@ -3,10 +3,11 @@ import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { TranslatePipe } from '@ngx-translate/core';
 
+import { IsolatePipe } from '../../core/bidi';
 import { copyText } from '../../core/clipboard';
 import { formatDate } from '../../core/format-date';
 import { LocaleService } from '../../core/locale.service';
-import { buildLinkShareMessage, whatsappShareUrl } from './link-share';
+import { type LinkPurpose, buildLinkShareMessage, whatsappShareUrl } from './link-share';
 
 export interface LinkIssuedDialogData {
   /** The contributor's name. */
@@ -14,7 +15,15 @@ export interface LinkIssuedDialogData {
   /** The link with its token. Only here, in memory, while the dialog is open. */
   url: string;
   expiresAt: string;
+  /** Which message the WhatsApp share carries; `add` when not given. */
+  purpose?: LinkPurpose;
 }
+
+/**
+ * How to open it: the URL is shown once, so Escape or a click beside the dialog must not close it
+ * by accident. Only Done does.
+ */
+export const LINK_ISSUED_DIALOG_CONFIG = { disableClose: true } as const;
 
 /**
  * The contributor link, shown once (spec 11.4: only the token's hash is stored, so it cannot be
@@ -23,10 +32,10 @@ export interface LinkIssuedDialogData {
  */
 @Component({
   selector: 'app-link-issued-dialog',
-  imports: [MatButtonModule, MatDialogModule, TranslatePipe],
+  imports: [MatButtonModule, MatDialogModule, TranslatePipe, IsolatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <h2 mat-dialog-title>{{ 'links.issued.title' | translate: { name: data.name } }}</h2>
+    <h2 mat-dialog-title>{{ 'links.issued.title' | translate: { name: (data.name | isolate) } }}</h2>
     <mat-dialog-content>
       <p class="warning">{{ 'links.issued.warning' | translate: { date: expires() } }}</p>
       <label class="url-field">
@@ -93,7 +102,7 @@ export class LinkIssuedDialog {
   protected readonly copyStatus = signal<string | null>(null);
   protected readonly expires = computed(() => formatDate(this.data.expiresAt, this.locale.locale()));
   protected readonly shareUrl = computed(() =>
-    whatsappShareUrl(buildLinkShareMessage(this.locale.locale(), this.data.url)),
+    whatsappShareUrl(buildLinkShareMessage(this.locale.locale(), this.data.url, this.data.purpose)),
   );
 
   protected async copy(): Promise<void> {

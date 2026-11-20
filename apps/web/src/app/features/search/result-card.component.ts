@@ -7,6 +7,7 @@ import type { ContactOut, PersonOut, SearchResult } from '@connections/domain-ty
 import { firstValueFrom } from 'rxjs';
 
 import { ApiClient, toApiError } from '../../core/api.client';
+import { IsolatePipe } from '../../core/bidi';
 import { copyText } from '../../core/clipboard';
 import { LocaleService } from '../../core/locale.service';
 import { relativeTime } from '../../core/relative-time';
@@ -44,7 +45,7 @@ const INTRO_STATUS_KEYS: Record<IntroStatus, string> = {
  */
 @Component({
   selector: 'app-result-card',
-  imports: [MatButtonModule, RouterLink, TranslatePipe, PathLineComponent, ContactListComponent],
+  imports: [MatButtonModule, RouterLink, TranslatePipe, IsolatePipe, PathLineComponent, ContactListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <article class="card">
@@ -104,7 +105,7 @@ const INTRO_STATUS_KEYS: Record<IntroStatus, string> = {
             [disabled]="busy()"
             (click)="askIntro()"
           >
-            {{ 'search.askIntro' | translate: { name: firstHop().display_name } }}
+            {{ 'search.askIntro' | translate: { name: (firstHop().display_name | isolate) } }}
           </button>
         }
         <button
@@ -125,13 +126,13 @@ const INTRO_STATUS_KEYS: Record<IntroStatus, string> = {
 
       @if (intro(); as panel) {
         <div class="intro-panel">
-          <p class="intro-status" role="status">{{ statusKey(panel) | translate: { name: panel.name } }}</p>
+          <p class="intro-status" role="status">{{ statusKey(panel) | translate: { name: (panel.name | isolate) } }}</p>
           <textarea
             class="intro-text"
             readonly
             rows="3"
             dir="auto"
-            [attr.aria-label]="'search.intro.textLabel' | translate: { name: panel.name }"
+            [attr.aria-label]="'search.intro.textLabel' | translate: { name: (panel.name | isolate) }"
             [value]="panel.text"
           ></textarea>
           @if (panel.whatsappUrl; as url) {
@@ -327,8 +328,9 @@ export class ResultCardComponent {
 
     const text = buildIntroMessage(this.locale.locale(), this.result().path);
     const number = pickWhatsappNumber(person.contacts);
-    if (number) {
-      const url = whatsappUrl(number, text);
+    // A number WhatsApp cannot be sure of (no country to place it in) gets the copy fallback.
+    const url = number ? whatsappUrl(number, text) : null;
+    if (url) {
       const opened = this.window?.open(url, '_blank');
       if (opened) {
         // Not "noopener": that makes open() return null, which reads as a blocked popup.

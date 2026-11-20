@@ -37,7 +37,18 @@ export const routes: Routes = [
         children: [
           { path: '', pathMatch: 'full', redirectTo: 'search' },
           { path: 'search', ...placeholder('pages.search.title') },
-          { path: 'add', ...placeholder('pages.add.title') },
+          {
+            path: 'add',
+            loadComponent: () =>
+              import('./features/people/add-person.page').then((m) => m.AddPersonPage),
+          },
+          {
+            path: 'people/:id/edit',
+            loadComponent: () =>
+              import('./features/people/edit-person.page').then((m) => m.EditPersonPage),
+          },
+          // The person page is Task 14; saving a person already navigates here.
+          { path: 'people/:id', ...placeholder('pages.person.title') },
           { path: 'review', ...placeholder('pages.review.title') },
           { path: 'links', ...placeholder('pages.links.title') },
           { path: 'export', ...placeholder('pages.export.title') },

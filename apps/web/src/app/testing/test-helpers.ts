@@ -13,9 +13,12 @@ export function fakeJwt(claims: Record<string, unknown>): string {
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(claims)}.signature`;
 }
 
+/** The person the fake admin session belongs to (the `person_id` claim). */
+export const ADMIN_PERSON_ID = 'admin-person-id';
+
 export function fakeSession(aal: AuthLevel = 'aal1'): Session {
   return {
-    access_token: fakeJwt({ sub: 'user-1', aal }),
+    access_token: fakeJwt({ sub: 'user-1', aal, person_id: ADMIN_PERSON_ID }),
     refresh_token: 'refresh',
     token_type: 'bearer',
     expires_in: 3600,
@@ -33,6 +36,11 @@ export function fakeAuthService(session: Session | null = null) {
       const token = current()?.access_token;
       const claim = token ? JSON.parse(atob(token.split('.')[1])).aal : null;
       return (claim ?? null) as AuthLevel | null;
+    },
+    personId: () => {
+      const token = current()?.access_token;
+      const claim = token ? JSON.parse(atob(token.split('.')[1])).person_id : null;
+      return (claim ?? null) as string | null;
     },
     signIn: jasmine.createSpy('signIn'),
     nextStep: jasmine.createSpy('nextStep'),

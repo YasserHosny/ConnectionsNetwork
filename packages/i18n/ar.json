@@ -29,7 +29,136 @@
     "add": { "title": "إضافة شخص" },
     "review": { "title": "مراجعة" },
     "links": { "title": "روابط المساهمين" },
-    "export": { "title": "تصدير" }
+    "export": { "title": "تصدير" },
+    "edit": { "title": "تعديل شخص" },
+    "person": { "title": "شخص" }
+  },
+  "person": {
+    "saved": "تم حفظ {{name}}.",
+    "form": {
+      "nameAr": "الاسم بالعربية",
+      "nameLatin": "الاسم بالإنجليزية",
+      "nameHint": "اكتب اسمًا واحدًا على الأقل.",
+      "save": "حفظ",
+      "saving": "جارٍ الحفظ…",
+      "moreDetails": "المزيد من التفاصيل",
+      "pickFromContacts": "اختيار من جهات الاتصال",
+      "draftRestored": "استرجعنا ما كتبته ولم يُحفظ من هذا الجهاز.",
+      "discardDraft": "تجاهله",
+      "headline": "المسمّى الوظيفي أو نبذة قصيرة",
+      "organization": "جهة العمل",
+      "profession": "المهنة",
+      "seniority": "المستوى الوظيفي",
+      "seniorityNone": "غير محدد",
+      "availableFor": "متاح لـ",
+      "city": "المدينة",
+      "country": "الدولة",
+      "adminNotes": "ملاحظات خاصة",
+      "adminNotesHint": "أنت وحدك من يراها.",
+      "connectionNote": "كيف تعرفتما؟",
+      "skills": "المهارات",
+      "industries": "المجالات",
+      "socialLinks": "روابط التواصل",
+      "contacts": "بيانات الاتصال",
+      "addSocialLink": "إضافة رابط",
+      "addContact": "إضافة بيان اتصال",
+      "removeRow": "حذف",
+      "socialUrl": "الرابط",
+      "contactValue": "القيمة",
+      "kind": "النوع"
+    },
+    "strength": {
+      "label": "قوة العلاقة",
+      "help": "أي حد تقدر تبعتله رسالة وهو يعرف إنت مين. اللي اتقابلتوا مرة: ضعيفة.",
+      "strong": "قوية",
+      "normal": "عادية",
+      "weak": "ضعيفة"
+    },
+    "seniority": {
+      "employee": "موظف",
+      "manager": "مدير",
+      "decisionMaker": "صاحب قرار",
+      "businessOwner": "صاحب عمل"
+    },
+    "availableFor": {
+      "jobSeeking": "يبحث عن وظيفة",
+      "freelance": "يقبل أعمالًا حرة",
+      "offersService": "يقدّم خدمة أو منتجًا",
+      "partnerSeeking": "يبحث عن شريك"
+    },
+    "skillCategory": {
+      "technical": "تقنية",
+      "languages": "لغات",
+      "sports": "رياضة",
+      "artsLiterature": "فنون وأدب",
+      "culture": "ثقافة",
+      "craftsTrades": "حِرَف ومهن",
+      "business": "أعمال",
+      "other": "أخرى"
+    },
+    "skillLevel": {
+      "label": "المستوى",
+      "none": "بدون مستوى",
+      "basic": "مبتدئ",
+      "good": "جيد",
+      "expert": "خبير"
+    },
+    "socialKind": {
+      "facebook": "فيسبوك",
+      "x": "إكس",
+      "linkedin": "لينكدإن",
+      "instagram": "إنستجرام",
+      "github": "جيت هب",
+      "website": "موقع إلكتروني"
+    },
+    "contactKind": {
+      "phone": "هاتف",
+      "whatsapp": "واتساب",
+      "email": "بريد إلكتروني"
+    },
+    "connectTo": {
+      "label": "مرتبط بـ",
+      "me": "أنا (الافتراضي)",
+      "search": "ابحث عن شخص بالاسم",
+      "noResults": "لا يوجد أحد بهذا الاسم.",
+      "reset": "استخدم «أنا»",
+      "searchFailed": "البحث غير متاح حاليًا."
+    },
+    "tags": {
+      "add": "إضافة",
+      "categoryLabel": "التصنيف",
+      "categoryPlaceholder": "اختر تصنيفًا",
+      "categoryRequired": "اختر تصنيفًا لهذه المهارة.",
+      "remove": "إزالة {{label}}"
+    },
+    "duplicates": {
+      "title": "قد يكون هذا الشخص موجودًا بالفعل",
+      "intro": "تم حفظ الشخص الجديد. هؤلاء الأشخاص يشتركون معه في رقم هاتف أو بريد إلكتروني أو رابط. افتحهم للتأكد.",
+      "matchedOn": {
+        "phone": "نفس رقم الهاتف",
+        "whatsapp": "نفس رقم واتساب",
+        "email": "نفس البريد الإلكتروني",
+        "socialLink": "نفس رابط التواصل"
+      },
+      "openPerson": "افتح الشخص الجديد",
+      "addAnother": "إضافة شخص آخر"
+    },
+    "edit": {
+      "loadFailed": "تعذّر تحميل بيانات هذا الشخص."
+    },
+    "errors": {
+      "savedOnDevice": "تعذّر الوصول إلى الخادم. ما كتبته محفوظ على هذا الجهاز، أعد المحاولة عند عودة الاتصال.",
+      "generic": "تعذّر الحفظ. حاول مرة أخرى.",
+      "invalid": "بعض البيانات غير صالحة. راجع النموذج وحاول مرة أخرى.",
+      "invalidField": "قيمة غير صالحة في: {{field}}.",
+      "nameRequired": "اكتب اسمًا بالعربية أو بالإنجليزية.",
+      "strengthRequired": "اختر قوة العلاقة.",
+      "personNotFound": "الشخص الذي اخترته للربط لم يعد موجودًا. اختر شخصًا آخر.",
+      "alreadyConnected": "هذان الشخصان مرتبطان بالفعل.",
+      "notFound": "لم يتم العثور على هذا الشخص.",
+      "sessionEnded": "انتهت جلستك. سجّل الدخول مرة أخرى.",
+      "forbidden": "غير مسموح لك بهذا الإجراء."
+    }
   },
   "contribute": {
     "title": "أضف شخصًا تعرفه"

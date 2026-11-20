@@ -44,18 +44,30 @@ export const SUPABASE_CLIENT = new InjectionToken<SupabaseClient | null>('SUPABA
   },
 });
 
-/** The `aal` claim of a Supabase access token, or null when it is absent or unreadable. */
-export function aalFromAccessToken(token: string | null | undefined): AuthLevel | null {
+/** The payload of an access token, or null when it is absent or unreadable. */
+function claimsOf(token: string | null | undefined): Record<string, unknown> | null {
   const payload = token?.split('.')[1];
   if (!payload) return null;
   try {
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
     const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const claims = JSON.parse(new TextDecoder().decode(bytes)) as { aal?: unknown };
-    return claims.aal === 'aal1' || claims.aal === 'aal2' ? claims.aal : null;
+    const claims: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    return typeof claims === 'object' && claims !== null ? (claims as Record<string, unknown>) : null;
   } catch {
     return null;
   }
+}
+
+/** The `aal` claim of a Supabase access token, or null when it is absent or unreadable. */
+export function aalFromAccessToken(token: string | null | undefined): AuthLevel | null {
+  const aal = claimsOf(token)?.['aal'];
+  return aal === 'aal1' || aal === 'aal2' ? aal : null;
+}
+
+/** The `person_id` claim (the admin's own person, stamped by the access token hook), or null. */
+export function personIdFromAccessToken(token: string | null | undefined): string | null {
+  const personId = claimsOf(token)?.['person_id'];
+  return typeof personId === 'string' && personId ? personId : null;
 }
 
 /**
@@ -74,6 +86,8 @@ export class AuthService {
   readonly session = this.current.asReadonly();
   /** Authenticator assurance level of the current access token: aal2 once TOTP is verified. */
   readonly aal = computed<AuthLevel | null>(() => aalFromAccessToken(this.current()?.access_token));
+  /** The signed-in admin's own person: who "connected to" defaults to when adding someone. */
+  readonly personId = computed(() => personIdFromAccessToken(this.current()?.access_token));
 
   /** Restores a stored session and follows the client's later changes (refresh, sign-out). */
   async init(): Promise<void> {

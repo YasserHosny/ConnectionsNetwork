@@ -29,7 +29,136 @@
     "add": { "title": "Add person" },
     "review": { "title": "Review" },
     "links": { "title": "Contributor links" },
-    "export": { "title": "Export" }
+    "export": { "title": "Export" },
+    "edit": { "title": "Edit person" },
+    "person": { "title": "Person" }
+  },
+  "person": {
+    "saved": "Saved {{name}}.",
+    "form": {
+      "nameAr": "Name (Arabic)",
+      "nameLatin": "Name (English)",
+      "nameHint": "Fill in at least one name.",
+      "save": "Save",
+      "saving": "Saving…",
+      "moreDetails": "More details",
+      "pickFromContacts": "Pick from contacts",
+      "draftRestored": "Restored your unsaved entry from this device.",
+      "discardDraft": "Discard it",
+      "headline": "Headline or job title",
+      "organization": "Organization",
+      "profession": "Profession",
+      "seniority": "Seniority",
+      "seniorityNone": "Not set",
+      "availableFor": "Available for",
+      "city": "City",
+      "country": "Country",
+      "adminNotes": "Private notes",
+      "adminNotesHint": "Only you can see these.",
+      "connectionNote": "How do you know each other?",
+      "skills": "Skills",
+      "industries": "Industries",
+      "socialLinks": "Social links",
+      "contacts": "Contact details",
+      "addSocialLink": "Add a link",
+      "addContact": "Add a contact detail",
+      "removeRow": "Remove",
+      "socialUrl": "Link",
+      "contactValue": "Value",
+      "kind": "Type"
+    },
+    "strength": {
+      "label": "Connection strength",
+      "help": "Anyone you could message who would know who you are. People you met only once: weak.",
+      "strong": "Strong",
+      "normal": "Normal",
+      "weak": "Weak"
+    },
+    "seniority": {
+      "employee": "Employee",
+      "manager": "Manager",
+      "decisionMaker": "Decision-maker",
+      "businessOwner": "Business owner"
+    },
+    "availableFor": {
+      "jobSeeking": "Looking for a job",
+      "freelance": "Takes freelance work",
+      "offersService": "Offers a service or product",
+      "partnerSeeking": "Looking for a partner"
+    },
+    "skillCategory": {
+      "technical": "Technical",
+      "languages": "Languages",
+      "sports": "Sports",
+      "artsLiterature": "Arts and literature",
+      "culture": "Culture",
+      "craftsTrades": "Crafts and trades",
+      "business": "Business",
+      "other": "Other"
+    },
+    "skillLevel": {
+      "label": "Level",
+      "none": "No level",
+      "basic": "Basic",
+      "good": "Good",
+      "expert": "Expert"
+    },
+    "socialKind": {
+      "facebook": "Facebook",
+      "x": "X",
+      "linkedin": "LinkedIn",
+      "instagram": "Instagram",
+      "github": "GitHub",
+      "website": "Website"
+    },
+    "contactKind": {
+      "phone": "Phone",
+      "whatsapp": "WhatsApp",
+      "email": "Email"
+    },
+    "connectTo": {
+      "label": "Connected to",
+      "me": "Me (default)",
+      "search": "Search people by name",
+      "noResults": "No one found.",
+      "reset": "Use me",
+      "searchFailed": "Search is unavailable right now."
+    },
+    "tags": {
+      "add": "Add",
+      "categoryLabel": "Category",
+      "categoryPlaceholder": "Choose a category",
+      "categoryRequired": "Choose a category for this skill.",
+      "remove": "Remove {{label}}"
+    },
+    "duplicates": {
+      "title": "This person may already exist",
+      "intro": "The new person was saved. These people share a phone number, email or link with them. Open them to check.",
+      "matchedOn": {
+        "phone": "Same phone number",
+        "whatsapp": "Same WhatsApp number",
+        "email": "Same email",
+        "socialLink": "Same social link"
+      },
+      "openPerson": "Open the new person",
+      "addAnother": "Add another person"
+    },
+    "edit": {
+      "loadFailed": "Could not load this person."
+    },
+    "errors": {
+      "savedOnDevice": "Could not reach the server. Your entry is kept on this device; try again when you are back online.",
+      "generic": "Could not save. Try again.",
+      "invalid": "Some details are not valid. Check the form and try again.",
+      "invalidField": "This value is not valid: {{field}}.",
+      "nameRequired": "Enter a name in Arabic or English.",
+      "strengthRequired": "Choose the connection strength.",
+      "personNotFound": "The person you chose to connect to no longer exists. Pick someone else.",
+      "alreadyConnected": "These two people are already connected.",
+      "notFound": "This person was not found.",
+      "sessionEnded": "Your session ended. Sign in again.",
+      "forbidden": "You are not allowed to do this."
+    }
   },
   "contribute": {
     "title": "Add someone you know"

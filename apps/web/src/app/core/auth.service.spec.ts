@@ -2,7 +2,13 @@ import { TestBed } from '@angular/core/testing';
 import { type Session, createClient } from '@supabase/supabase-js';
 
 import { fakeJwt, fakeSession } from '../testing/test-helpers';
-import { AuthError, AuthService, SUPABASE_CLIENT, aalFromAccessToken } from './auth.service';
+import {
+  AuthError,
+  AuthService,
+  SUPABASE_CLIENT,
+  aalFromAccessToken,
+  personIdFromAccessToken,
+} from './auth.service';
 
 type Callback = (event: string, session: Session | null) => void;
 
@@ -49,6 +55,19 @@ describe('aalFromAccessToken', () => {
   });
 });
 
+describe('personIdFromAccessToken', () => {
+  it('reads the person_id claim the access token hook stamps', () => {
+    expect(personIdFromAccessToken(fakeJwt({ person_id: 'p-1' }))).toBe('p-1');
+  });
+
+  it('is null when the claim is missing, not a string or the token is unreadable', () => {
+    expect(personIdFromAccessToken(fakeJwt({ sub: 'x' }))).toBeNull();
+    expect(personIdFromAccessToken(fakeJwt({ person_id: 7 }))).toBeNull();
+    expect(personIdFromAccessToken('not-a-jwt')).toBeNull();
+    expect(personIdFromAccessToken(undefined)).toBeNull();
+  });
+});
+
 describe('AuthService', () => {
   let fake: ReturnType<typeof createFakeClient>;
 
@@ -67,10 +86,12 @@ describe('AuthService', () => {
 
     await service.init();
     expect(service.aal()).toBe('aal2');
+    expect(service.personId()).toBe('admin-person-id');
 
     fake.emit('SIGNED_OUT', null);
     expect(service.session()).toBeNull();
     expect(service.aal()).toBeNull();
+    expect(service.personId()).toBeNull();
   });
 
   describe('signIn', () => {

@@ -90,7 +90,11 @@ interface NavItem {
       gap: 4px;
     }
     .app-name {
+      min-inline-size: 0;
+      overflow: hidden;
       font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .spacer {
       flex: 1 1 auto;
@@ -130,7 +134,9 @@ interface NavItem {
 
     @media (max-width: 719px) {
       :host {
-        grid-template-columns: 1fr;
+        // minmax(0, ...) lets the column shrink below its content: a long Arabic app name, the
+        // language switch and sign out together are wider than a 375px phone.
+        grid-template-columns: minmax(0, 1fr);
         grid-template-areas:
           'top'
           'content';

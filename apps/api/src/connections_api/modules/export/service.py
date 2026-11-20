@@ -9,6 +9,9 @@ schema). Two columns never leave the database:
   * `member.user_id`: the identity of the sign-in account, which belongs to Supabase Auth. The
     export reads nothing from the `auth` schema.
 
+JSON is the lossless format. CSV neutralises leading formula characters (`_csv_cell`), so a
+cell can differ from the stored value by a leading quote.
+
 Nothing here logs: the rows are contact details and names.
 """
 
@@ -17,6 +20,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import zipfile
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -47,6 +51,14 @@ _TABLES: dict[str, tuple[str, ...]] = {
 _NEVER_EXPORTED: frozenset[tuple[str, str]] = frozenset(
     {("contributor_link", "token_hash"), ("member", "user_id")}
 )
+
+# Excel and Sheets run a cell starting with one of these as a formula (or a DDE command).
+# Contributors submit free text through public links and the admin opens this file in a
+# spreadsheet, so such a cell is prefixed with a single quote. A phone number may start with
+# '+'; a cell of only digits, spaces and ().- cannot carry a formula, so those are left byte
+# for byte.
+_FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+_PHONE_LIKE = re.compile(r"\+?[0-9][0-9 ().\-]*")
 
 # CSV has no list type: a multi-valued column (person.available_for) is joined with this.
 CSV_LIST_SEPARATOR = ";"
@@ -110,13 +122,18 @@ def to_json(network_id: UUID, tables: dict[str, ExportTable], exported_at: datet
 
 
 def _csv_cell(value: object) -> str:
+    """One CSV cell. Text a spreadsheet would run as a formula is neutralised (see below)."""
     if value is None:
         return ""
     if isinstance(value, list):
-        return CSV_LIST_SEPARATOR.join(str(item) for item in value)
-    if isinstance(value, datetime):
-        return value.isoformat()
-    return str(value)
+        text = CSV_LIST_SEPARATOR.join(str(item) for item in value)
+    elif isinstance(value, datetime):
+        text = value.isoformat()
+    else:
+        text = str(value)
+    if text.startswith(_FORMULA_STARTS) and not _PHONE_LIKE.fullmatch(text):
+        return "'" + text
+    return text
 
 
 def to_csv_zip(tables: dict[str, ExportTable]) -> bytes:

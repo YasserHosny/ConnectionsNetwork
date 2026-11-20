@@ -75,6 +75,25 @@ describe('actionErrorKey', () => {
     expect(actionErrorKey(new ApiError('weird', 'English API text', 418))).toBe('person.errors.generic');
   });
 
+  it('maps the codes of the review, connect and link actions', () => {
+    expect(actionErrorKey(new ApiError('cannot_drop_account', 'x', 409))).toBe('person.errors.cannotDropAccount');
+    expect(actionErrorKey(new ApiError('link_revoked', 'x', 409))).toBe('person.errors.linkRevoked');
+    expect(actionErrorKey(new ApiError('conflict', 'x', 409))).toBe('person.errors.alreadyConnected');
+  });
+
+  it('names a person that no longer exists, whether the API says 404 or 422', () => {
+    const gone = new ApiError('validation.invalid_value', 'x', 422, { field: 'a', reason: 'person_not_found' });
+
+    expect(actionErrorKey(gone)).toBe('person.errors.personNotFound');
+    expect(actionErrorKey(new ApiError('validation.invalid_request', 'x', 422, [{ field: 'strength' }]))).toBe(
+      'person.errors.invalid',
+    );
+  });
+
+  it('lets the caller say what a 404 means: a link is not a person', () => {
+    expect(actionErrorKey(new ApiError('not_found', 'x', 404), 'links.errors.notFound')).toBe('links.errors.notFound');
+  });
+
   it('recognises a lapsed MFA step', () => {
     expect(isMfaRequired(new ApiError('mfa_required', 'x', 403))).toBeTrue();
     expect(isMfaRequired(new ApiError('auth.forbidden', 'x', 403))).toBeFalse();

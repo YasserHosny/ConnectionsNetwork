@@ -1,7 +1,7 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { ErrorEnvelope } from '@connections/domain-types';
-import { Observable, catchError, throwError } from 'rxjs';
+import { Observable, catchError, firstValueFrom, throwError } from 'rxjs';
 
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
@@ -43,6 +43,54 @@ export function toApiError(error: unknown): ApiError {
       : new ApiError('http_error', 'Request failed.', error.status);
   }
   return new ApiError('unknown_error', 'Request failed.');
+}
+
+/** A file the API sent as an attachment. */
+export interface DownloadedFile {
+  blob: Blob;
+  filename: string;
+}
+
+const FALLBACK_FILENAME = 'download';
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * The file name in a `Content-Disposition` header (`filename*=UTF-8''…` first, else `filename=`).
+ * Only the last path segment is kept: the server's name must never choose where a file is saved.
+ */
+export function filenameFromDisposition(header: string | null): string {
+  if (!header) return FALLBACK_FILENAME;
+  const encoded = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/i.exec(header)?.[1];
+  const plain = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(header);
+  const raw = encoded ? safeDecode(encoded.trim()) : (plain?.[1] ?? plain?.[2] ?? '').trim();
+  return raw.split(/[\\/]/).pop() || FALLBACK_FILENAME;
+}
+
+/** With `responseType: 'blob'` an error body is a Blob too: read it to find our envelope. */
+async function toDownloadError(error: unknown): Promise<ApiError> {
+  if (error instanceof HttpErrorResponse && error.error instanceof Blob) {
+    try {
+      const body: unknown = JSON.parse(await error.error.text());
+      return toApiError(
+        new HttpErrorResponse({
+          error: body,
+          status: error.status,
+          statusText: error.statusText,
+          url: error.url ?? undefined,
+        }),
+      );
+    } catch {
+      // Not JSON (a proxy's error page): fall through to the generic mapping.
+    }
+  }
+  return toApiError(error);
 }
 
 function toHttpParams(params: QueryParams | undefined): HttpParams {
@@ -88,19 +136,46 @@ export class ApiClient {
     return this.request<T>('DELETE', path);
   }
 
+  /**
+   * GET a file (an export) as a blob, named by the response's `Content-Disposition`. Rejects with
+   * an `ApiError` like the other calls. Query parameters only: no contact values (see above).
+   */
+  async download(path: string, params?: QueryParams): Promise<DownloadedFile> {
+    try {
+      const response = await firstValueFrom(
+        this.http.get(`${environment.apiBaseUrl}${path}`, {
+          params: toHttpParams(params),
+          headers: this.headers(),
+          observe: 'response',
+          responseType: 'blob',
+        }),
+      );
+      return {
+        blob: response.body ?? new Blob(),
+        filename: filenameFromDisposition(response.headers.get('Content-Disposition')),
+      };
+    } catch (error) {
+      throw await toDownloadError(error);
+    }
+  }
+
   private request<T>(
     method: string,
     path: string,
     body?: unknown,
     params?: QueryParams,
   ): Observable<T> {
-    const token = this.auth.session()?.access_token;
     return this.http
       .request<T>(method, `${environment.apiBaseUrl}${path}`, {
         body,
         params: toHttpParams(params),
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: this.headers(),
       })
       .pipe(catchError((error: unknown) => throwError(() => toApiError(error))));
+  }
+
+  private headers(): Record<string, string> {
+    const token = this.auth.session()?.access_token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }
 }

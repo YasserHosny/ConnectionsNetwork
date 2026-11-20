@@ -1,15 +1,12 @@
 import type { ContactKind, PathNode } from '@connections/domain-types';
 import { type SupportedLocale, arCatalog, enCatalog } from '@connections/i18n';
 
+import { interpolate } from '../../core/interpolate';
+
 const INTRO = { en: enCatalog.search.intro, ar: arCatalog.search.intro } as const;
 
 /** Country code assumed for a number written the local way (global constraints: +20, Egypt). */
 const DEFAULT_COUNTRY_CODE = '20';
-
-/** Fills `{{name}}` placeholders in one pass, so a value that contains `{{x}}` stays as typed. */
-function interpolate(template: string, values: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (match, name: string) => values[name] ?? match);
-}
 
 /**
  * The message that asks the first person on a path for an introduction (spec 8.6). `path` runs

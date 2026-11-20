@@ -77,6 +77,81 @@ describe('ApiClient', () => {
     req.flush([]);
   });
 
+  describe('download', () => {
+    const DISPOSITION = 'attachment; filename="connections-export-2026-11-20.zip"';
+
+    it('fetches the file as a blob with the bearer token and takes its name from the header', async () => {
+      const result = api.download('/export', { format: 'csv' });
+
+      const req = http.expectOne((r) => r.url === '/api/v1/export');
+      expect(req.request.method).toBe('GET');
+      expect(req.request.responseType).toBe('blob');
+      expect(req.request.params.get('format')).toBe('csv');
+      expect(req.request.headers.get('Authorization')).toBe(`Bearer ${auth.session()?.access_token}`);
+      req.flush(new Blob(['zip']), { headers: { 'Content-Disposition': DISPOSITION } });
+
+      const file = await result;
+      expect(file.filename).toBe('connections-export-2026-11-20.zip');
+      expect(file.blob.size).toBe(3);
+    });
+
+    it('reads an RFC 5987 filename and drops any path in it', async () => {
+      const result = api.download('/export');
+
+      http.expectOne('/api/v1/export').flush(new Blob(['x']), {
+        headers: { 'Content-Disposition': "attachment; filename*=UTF-8''..%2F..%2Fnetwork%20backup.json" },
+      });
+
+      expect((await result).filename).toBe('network backup.json');
+    });
+
+    it('uses a plain name when the header is missing', async () => {
+      const result = api.download('/export');
+
+      http.expectOne('/api/v1/export').flush(new Blob(['x']));
+
+      expect((await result).filename).toBe('download');
+    });
+
+    it('rejects with the error envelope even though the body arrives as a blob', async () => {
+      const result = api.download('/export');
+
+      const envelope = { code: 'mfa_required', message: 'MFA', details: null, trace_id: 't-1' };
+      http
+        .expectOne('/api/v1/export')
+        .flush(new Blob([JSON.stringify(envelope)], { type: 'application/json' }), {
+          status: 403,
+          statusText: 'Forbidden',
+        });
+
+      await expectAsync(result).toBeRejectedWith(
+        jasmine.objectContaining({ code: 'mfa_required', status: 403, traceId: 't-1' }),
+      );
+    });
+
+    it('rejects with a generic error when the failure body is not our envelope', async () => {
+      const result = api.download('/export');
+
+      http
+        .expectOne('/api/v1/export')
+        .flush(new Blob(['<html>bad gateway</html>']), { status: 502, statusText: 'Bad Gateway' });
+
+      await expectAsync(result).toBeRejectedWith(
+        jasmine.objectContaining({ code: 'http_error', status: 502 }),
+      );
+    });
+
+    it('rejects with a network error when the server cannot be reached', async () => {
+      const result = api.download('/export');
+
+      http.expectOne('/api/v1/export').error(new ProgressEvent('error'));
+
+      await expectAsync(result).toBeRejectedWith(
+        jasmine.objectContaining({ code: 'network_error', status: 0 }),
+      );
+    });
+  });
+
   describe('errors', () => {
     function failWith(body: string | object, status: number): ApiError {
       let error: unknown;

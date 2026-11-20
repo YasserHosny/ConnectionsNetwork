@@ -2,15 +2,9 @@ import { Routes } from '@angular/router';
 
 import { mfaGuard } from './core/mfa.guard';
 
-const placeholder = (titleKey: string) => ({
-  loadComponent: () =>
-    import('./features/placeholder/placeholder.component').then((m) => m.PlaceholderComponent),
-  data: { titleKey },
-});
-
 /**
  * One pathless parent carries `mfaGuard`, so it judges every navigation: it lets /login, /mfa
- * and /c through and sends the rest to sign-in or MFA. Later tasks replace the remaining placeholders.
+ * and /c through and sends the rest to sign-in or MFA.
  */
 export const routes: Routes = [
   {
@@ -54,9 +48,19 @@ export const routes: Routes = [
             path: 'people/:id',
             loadComponent: () => import('./features/people/person.page').then((m) => m.PersonPage),
           },
-          { path: 'review', ...placeholder('pages.review.title') },
-          { path: 'links', ...placeholder('pages.links.title') },
-          { path: 'export', ...placeholder('pages.export.title') },
+          {
+            path: 'review',
+            loadChildren: () => import('./features/review/review.routes').then((m) => m.REVIEW_ROUTES),
+          },
+          {
+            path: 'links',
+            loadComponent: () => import('./features/links/links.page').then((m) => m.LinksPage),
+          },
+          {
+            path: 'export',
+            loadComponent: () =>
+              import('./features/export/export.page').then((m) => m.ExportPage),
+          },
         ],
       },
       { path: '**', redirectTo: '' },

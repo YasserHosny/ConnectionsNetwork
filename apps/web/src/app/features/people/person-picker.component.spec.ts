@@ -42,6 +42,16 @@ describe('PersonPickerComponent', () => {
     localStorage.clear();
   });
 
+  it('takes its wording from the page that uses it', () => {
+    fixture.componentRef.setInput('legendKey', 'links.create.legend');
+    fixture.componentRef.setInput('emptyKey', 'links.create.empty');
+    fixture.detectChanges();
+
+    expect(el().querySelector('legend')?.textContent).toContain('Create a link for');
+    expect(el().querySelector('.selected')?.textContent).toContain('No one chosen yet');
+    expect(el().querySelector('.selected')?.textContent).not.toContain('Me (default)');
+  });
+
   it('defaults to the admin', () => {
     expect(fixture.componentInstance.value()).toBeNull();
     expect(el().querySelector('.selected')?.textContent).toContain('Me');

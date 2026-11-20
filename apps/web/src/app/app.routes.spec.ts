@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideLocationMocks } from '@angular/common/testing';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
@@ -19,6 +21,8 @@ describe('app routes', () => {
       providers: [
         provideRouter(routes),
         provideLocationMocks(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
         provideTranslateService(),
         { provide: AuthService, useValue: auth },
       ],

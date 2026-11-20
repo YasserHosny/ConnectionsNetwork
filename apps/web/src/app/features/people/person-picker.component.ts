@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, model, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  input,
+  model,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -23,6 +31,9 @@ interface Outcome {
  * "Connected to": who the new person is connected to (spec 8.3). `null` is the admin, the default.
  * Anyone else is found by name through `GET /search`, which excludes the admin: that is why the
  * admin is the default and a "use me" button, not a search result.
+ *
+ * Other pages reuse it as a plain person chooser (nothing chosen is `null`) by passing their own
+ * `legendKey`, `emptyKey` and `resetKey`.
  */
 @Component({
   selector: 'app-person-picker',
@@ -30,16 +41,16 @@ interface Outcome {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <fieldset class="picker">
-      <legend>{{ 'person.connectTo.label' | translate }}</legend>
+      <legend>{{ legendKey() | translate }}</legend>
 
       <p class="selected">
         @if (value(); as target) {
           <span>{{ target.name }}</span>
           <button mat-button type="button" class="reset" (click)="reset()">
-            {{ 'person.connectTo.reset' | translate }}
+            {{ resetKey() | translate }}
           </button>
         } @else {
-          <span>{{ 'person.connectTo.me' | translate }}</span>
+          <span>{{ emptyKey() | translate }}</span>
         }
       </p>
 
@@ -126,6 +137,11 @@ export class PersonPickerComponent {
   private readonly api = inject(ApiClient);
 
   readonly value = model<ConnectTarget | null>(null);
+
+  /** Wording, as i18n keys: the defaults read "Connected to / Me (default) / Use me". */
+  readonly legendKey = input('person.connectTo.label');
+  readonly emptyKey = input('person.connectTo.me');
+  readonly resetKey = input('person.connectTo.reset');
 
   protected readonly query = signal('');
   protected readonly results = signal<SearchResult[]>([]);

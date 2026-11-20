@@ -93,17 +93,36 @@ export function isMfaRequired(error: ApiError): boolean {
   return error.code === 'mfa_required';
 }
 
+/** The person (or one of the pair) the request named no longer exists: 404, or 422 `person_not_found`. */
+export function isPersonGone(error: ApiError): boolean {
+  return (
+    error.code === 'not_found' || detailList(error).some((d) => d['reason'] === 'person_not_found')
+  );
+}
+
 /**
  * The i18n key for a failed read or action that saves nothing (search, loading a person, confirm,
- * delete). Unlike `personErrorMessage` it never promises a draft on the device. Never the API text.
+ * delete, merge, connect, links, export). Unlike `personErrorMessage` it never promises a draft on
+ * the device. Never the API text.
+ *
+ * A 404 reads "person not found" unless the caller says what it was looking for (`notFoundKey`).
  */
-export function actionErrorKey(error: ApiError): string {
+export function actionErrorKey(error: ApiError, notFoundKey = 'person.errors.notFound'): string {
   if (isRetryable(error)) return 'person.errors.unreachable';
   switch (error.code) {
     case 'cannot_delete_self':
       return 'person.errors.cannotDeleteSelf';
+    case 'cannot_drop_account':
+      return 'person.errors.cannotDropAccount';
+    case 'link_revoked':
+      return 'person.errors.linkRevoked';
+    case 'conflict':
+      return 'person.errors.alreadyConnected';
     case 'not_found':
-      return 'person.errors.notFound';
+      return notFoundKey;
+    case 'validation.invalid_request':
+    case 'validation.invalid_value':
+      return isPersonGone(error) ? 'person.errors.personNotFound' : 'person.errors.invalid';
     default:
       if (error.status === 401) return 'person.errors.sessionEnded';
       if (error.status === 403) return 'person.errors.forbidden';

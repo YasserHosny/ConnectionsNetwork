@@ -56,3 +56,21 @@ export function loadCatalogues(): void {
   translate.setTranslation('en', enCatalog);
   translate.setTranslation('ar', arCatalog);
 }
+
+/**
+ * Polls (up to two seconds) until `condition` gives something truthy, running change detection
+ * between tries: for what only appears after an animation (a dialog) or a debounce (the picker).
+ */
+export async function waitFor<T>(
+  fixture: { detectChanges(): void },
+  condition: () => T,
+): Promise<NonNullable<T>> {
+  let value = condition();
+  for (let i = 0; i < 100 && !value; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    fixture.detectChanges();
+    value = condition();
+  }
+  expect(value).toBeTruthy();
+  return value as NonNullable<T>;
+}

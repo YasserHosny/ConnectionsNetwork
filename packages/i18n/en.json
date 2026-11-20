@@ -3,6 +3,7 @@
     "appName": "Connections",
     "retry": "Try again",
     "loading": "Loading…",
+    "cancel": "Cancel",
     "comingSoon": "This page is coming soon.",
     "language": {
       "label": "Language",
@@ -186,7 +187,9 @@
       "sessionEnded": "Your session ended. Sign in again.",
       "forbidden": "You are not allowed to do this.",
       "unreachable": "Could not reach the server. Try again.",
-      "cannotDeleteSelf": "You cannot delete your own profile."
+      "cannotDeleteSelf": "You cannot delete your own profile.",
+      "cannotDropAccount": "This record belongs to a sign-in account, so it cannot be merged away. Keep it instead.",
+      "linkRevoked": "This link was revoked, so it cannot be renewed. Create a new link instead."
     }
   },
   "search": {
@@ -227,6 +230,121 @@
       "whatsappBlocked": "The browser blocked WhatsApp from opening. Use the button below.",
       "textLabel": "Message to {{name}}"
     }
+  },
+  "review": {
+    "tabsLabel": "Review sections",
+    "tabs": {
+      "duplicates": "Possible duplicates",
+      "stale": "Needs confirming",
+      "unreachable": "Not connected to you"
+    },
+    "loadFailed": "Could not load this list.",
+    "gone": "This person no longer exists. The list was refreshed.",
+    "duplicates": {
+      "intro": "These people share a phone number, email or link. Keep one record and merge the other into it, or say they are different people.",
+      "empty": "No possible duplicates.",
+      "matchedOn": {
+        "phone": "Same phone number",
+        "email": "Same email",
+        "socialLink": "Same social link"
+      },
+      "keep": "Keep this one",
+      "dismiss": "Not the same person",
+      "working": "Working…",
+      "merged": "Merged {{drop}} into {{keep}}.",
+      "dismissed": "Marked as different people.",
+      "mergeDialog": {
+        "title": "Keep {{keep}}?",
+        "body": "{{drop}} is merged into {{keep}} and then deleted. Their connections and details move to {{keep}}, and where both have a value, the more complete one is kept. This cannot be undone.",
+        "confirm": "Merge"
+      }
+    },
+    "stale": {
+      "intro": "These people have not been confirmed for over a year. Confirm that their details are right, edit them, or send them a link to update their own.",
+      "empty": "Everyone is up to date.",
+      "confirm": "Confirm",
+      "confirming": "Confirming…",
+      "confirmed": "Confirmed {{name}}.",
+      "edit": "Edit",
+      "sendLink": "Send update link",
+      "sendingLink": "Creating link…"
+    },
+    "unreachable": {
+      "intro": "These people have no path from you. Connect each one to someone in your network.",
+      "empty": "Everyone is connected to you.",
+      "connect": "Connect…",
+      "connected": "Connected {{name}}.",
+      "dialog": {
+        "title": "Connect {{name}}",
+        "submit": "Connect",
+        "submitting": "Connecting…",
+        "cancel": "Cancel",
+        "self": "Choose someone other than {{name}}."
+      }
+    }
+  },
+  "links": {
+    "intro": "A contributor link lets one person add the people they know, without an account. It works for 30 days.",
+    "loadFailed": "Could not load the links.",
+    "create": {
+      "legend": "Create a link for",
+      "empty": "No one chosen yet",
+      "reset": "Clear",
+      "submit": "Create link",
+      "submitting": "Creating…"
+    },
+    "listTitle": "Links",
+    "empty": "No links yet.",
+    "status": {
+      "active": "Active",
+      "expired": "Expired",
+      "revoked": "Revoked"
+    },
+    "expiresOn": "Expires {{date}}",
+    "expiredOn": "Expired {{date}}",
+    "revokedOn": "Revoked {{date}}",
+    "peopleAdded": "People added: {{count}}",
+    "renew": "Renew",
+    "renewing": "Renewing…",
+    "revoke": "Revoke",
+    "revoking": "Revoking…",
+    "revokeDialog": {
+      "title": "Revoke the link for {{name}}?",
+      "body": "The link stops working at once. People already added through it stay. You can create a new link later.",
+      "confirm": "Revoke"
+    },
+    "issued": {
+      "title": "Link for {{name}}",
+      "warning": "Copy or share this link now. It is shown only once and cannot be shown again. It works until {{date}}.",
+      "urlLabel": "Link",
+      "copy": "Copy link",
+      "copied": "Link copied.",
+      "copyFailed": "Could not copy automatically. Select the link above and copy it.",
+      "whatsapp": "Share on WhatsApp",
+      "done": "Done"
+    },
+    "share": {
+      "message": "Hi, I am adding the people I know to my network. Please add the people you know here: {{url}}"
+    },
+    "errors": {
+      "notFound": "This link was not found. The list was refreshed."
+    }
+  },
+  "export": {
+    "intro": "Download everything in your network: people, contact details, connections, links and tags.",
+    "json": {
+      "title": "JSON",
+      "hint": "The full backup: every field exactly as stored.",
+      "button": "Download JSON",
+      "working": "Preparing the file…"
+    },
+    "csv": {
+      "title": "CSV",
+      "hint": "A zip with one CSV file per table, for spreadsheets. A cell that starts with =, +, - or @ gets a leading apostrophe, so a spreadsheet does not run it as a formula. Use JSON for an exact copy.",
+      "button": "Download CSV",
+      "working": "Preparing the file…"
+    },
+    "done": "Downloaded {{filename}}."
   },
   "contribute": {
     "title": "Add someone you know"

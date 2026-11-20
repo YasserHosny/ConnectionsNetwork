@@ -189,7 +189,8 @@
       "unreachable": "Could not reach the server. Try again.",
       "cannotDeleteSelf": "You cannot delete your own profile.",
       "cannotDropAccount": "This record belongs to a sign-in account, so it cannot be merged away. Keep it instead.",
-      "linkRevoked": "This link was revoked, so it cannot be renewed. Create a new link instead."
+      "linkRevoked": "This link was revoked, so it cannot be renewed. Create a new link instead.",
+      "tooManyRequests": "Too many tries. Wait a minute, then try again."
     }
   },
   "search": {
@@ -348,7 +349,15 @@
     "done": "Downloaded {{filename}}."
   },
   "contribute": {
-    "title": "Add someone you know"
+    "title": "Add someone you know",
+    "greeting": "Hello, {{name}}",
+    "intro": "Add the people you know, one at a time. Each one will be connected to you.",
+    "strengthLabel": "How well do you know them?",
+    "expired": "This link has expired or is no longer valid. Ask for a new one.",
+    "added": "Added {{name}}. Thank you!",
+    "addAnother": "Add another person",
+    "listTitle": "Added from this page",
+    "listNote": "Only the people you added during this visit are shown here."
   },
   "auth": {
     "login": {

@@ -289,4 +289,48 @@ describe('PersonFormComponent', () => {
 
     expect(submitter).toHaveBeenCalledTimes(1);
   });
+
+  describe('contributor mode', () => {
+    it('hides the admin notes, the connection note and the Connected to picker, and keeps the strength', () => {
+      create({ contributor: true, draftKey: 'contribute' });
+
+      expect(field('adminNotes')).toBeNull();
+      expect(field('connectionNote')).toBeNull();
+      expect(el().querySelector('app-person-picker')).toBeNull();
+      expect(el().querySelector('mat-radio-group')).not.toBeNull();
+      expect(el().querySelector('.strength-help')?.textContent).toContain('Anyone you could message');
+      expect(el().querySelector('legend')?.textContent).not.toContain('Private notes');
+    });
+
+    it('still requires a strength', async () => {
+      create({ contributor: true, draftKey: 'contribute' });
+      setText('nameLatin', 'Sara Ali');
+
+      await submit();
+
+      expect(submitter).not.toHaveBeenCalled();
+      expect(el().textContent).toContain('Choose the connection strength.');
+    });
+
+    it('shows the admin fields by default', () => {
+      create();
+
+      expect(field('adminNotes')).not.toBeNull();
+      expect(el().querySelector('app-person-picker')).not.toBeNull();
+    });
+
+    it('takes tag suggestions from the given source instead of the admin /tags', async () => {
+      const source = jasmine.createSpy('suggestSource').and.returnValue(of([{ label: 'Design', category: null }]));
+      create({ contributor: true, draftKey: 'contribute', suggestSource: source });
+      (el().querySelector('details.more summary') as HTMLElement).click();
+      fixture.detectChanges();
+
+      const input = el().querySelector('app-tag-input input') as HTMLInputElement;
+      input.value = 'des';
+      input.dispatchEvent(new Event('input'));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      expect(source).toHaveBeenCalledWith('skill', 'des');
+    });
+  });
 });

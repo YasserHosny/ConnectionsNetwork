@@ -58,6 +58,19 @@ describe('personErrorMessage', () => {
   });
 });
 
+describe('rate limiting', () => {
+  it('tells the person to wait a minute and keeps no draft', () => {
+    const message = personErrorMessage(new ApiError('rate_limited', 'Rate limit exceeded: 5 per 1 minute', 429));
+
+    expect(message).toEqual({ key: 'person.errors.tooManyRequests', fieldKey: null, retryable: false });
+    expect(isRetryable(new ApiError('rate_limited', 'x', 429))).toBeFalse();
+  });
+
+  it('is the same message for a read or action', () => {
+    expect(actionErrorKey(new ApiError('rate_limited', 'x', 429))).toBe('person.errors.tooManyRequests');
+  });
+});
+
 describe('actionErrorKey', () => {
   it('says the server could not be reached for a network or server failure', () => {
     expect(actionErrorKey(new ApiError('network_error', 'x', 0))).toBe('person.errors.unreachable');

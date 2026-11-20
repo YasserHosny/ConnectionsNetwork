@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  Injector,
   OnInit,
   inject,
   input,
@@ -48,6 +49,7 @@ import {
   SENIORITY_OPTIONS,
   SOCIAL_KIND_OPTIONS,
   STRENGTH_OPTIONS,
+  type TagSuggest,
   type TagSuggestion,
   type TagValue,
   emptyPersonFormValue,
@@ -127,7 +129,9 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
 
       @if (mode() === 'add') {
         <fieldset class="strength">
-          <legend>{{ 'person.strength.label' | translate }}</legend>
+          <legend>
+            {{ (contributor() ? 'contribute.strengthLabel' : 'person.strength.label') | translate }}
+          </legend>
           <mat-radio-group formControlName="strength" class="strength-options">
             @for (option of strengths; track option.value) {
               <mat-radio-button [value]="option.value" [attr.value]="option.value">
@@ -141,17 +145,19 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
           }
         </fieldset>
 
-        <app-person-picker
-          [value]="form.controls.connectTo.value"
-          (valueChange)="form.controls.connectTo.setValue($event)"
-        />
+        @if (!contributor()) {
+          <app-person-picker
+            [value]="form.controls.connectTo.value"
+            (valueChange)="form.controls.connectTo.setValue($event)"
+          />
+        }
       }
 
       <details class="more" [open]="moreOpen()" (toggle)="onToggle($event)">
         <summary>{{ 'person.form.moreDetails' | translate }}</summary>
 
         <div class="more-fields">
-          @if (mode() === 'add') {
+          @if (mode() === 'add' && !contributor()) {
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
               <mat-label>{{ 'person.form.connectionNote' | translate }}</mat-label>
               <input matInput formControlName="connectionNote" autocomplete="off" />
@@ -279,11 +285,13 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
             </button>
           </fieldset>
 
-          <mat-form-field appearance="outline" subscriptSizing="dynamic">
-            <mat-label>{{ 'person.form.adminNotes' | translate }}</mat-label>
-            <textarea matInput rows="3" formControlName="adminNotes"></textarea>
-            <mat-hint>{{ 'person.form.adminNotesHint' | translate }}</mat-hint>
-          </mat-form-field>
+          @if (!contributor()) {
+            <mat-form-field appearance="outline" subscriptSizing="dynamic">
+              <mat-label>{{ 'person.form.adminNotes' | translate }}</mat-label>
+              <textarea matInput rows="3" formControlName="adminNotes"></textarea>
+              <mat-hint>{{ 'person.form.adminNotesHint' | translate }}</mat-hint>
+            </mat-form-field>
+          }
         </div>
       </details>
 
@@ -417,9 +425,18 @@ export class PersonFormComponent implements OnInit {
   /** Saves the value (the API call); its result is passed on through `saved`. */
   readonly submitter = input.required<(value: PersonFormValue) => Observable<unknown>>();
   readonly saved = output<unknown>();
+  /**
+   * A contributor adding people from their link (Task 16), not the admin: no private notes, no
+   * connection note and no "Connected to" picker (the connection is always to the contributor).
+   * The strength is still required.
+   */
+  readonly contributor = input(false);
+  /** Where tag suggestions come from; the admin's `/tags` when not given. */
+  readonly suggestSource = input<TagSuggest | null>(null);
 
   private readonly fb = inject(FormBuilder).nonNullable;
-  private readonly api = inject(ApiClient);
+  // Looked up on first use: a contributor's form never needs the admin client (or its session).
+  private readonly injector = inject(Injector);
   private readonly drafts = inject(DraftStore);
   private readonly router = inject(Router);
   private readonly cdr = inject(ChangeDetectorRef);
@@ -468,11 +485,15 @@ export class PersonFormComponent implements OnInit {
     return this.form.controls.contacts;
   }
 
-  /** Autocomplete for skills and industries: the admin's `/tags`. */
-  protected readonly suggest = (kind: TagKind, q: string): Observable<TagSuggestion[]> =>
-    this.api
+  /** Autocomplete for skills and industries: `suggestSource`, else the admin's `/tags`. */
+  protected readonly suggest = (kind: TagKind, q: string): Observable<TagSuggestion[]> => {
+    const source = this.suggestSource();
+    if (source) return source(kind, q);
+    return this.injector
+      .get(ApiClient)
       .get<TagOut[]>('/tags', { kind, q })
       .pipe(map((tags) => tags.map((t) => ({ label: t.label, category: t.category }))));
+  };
 
   ngOnInit(): void {
     if (this.mode() === 'add') {

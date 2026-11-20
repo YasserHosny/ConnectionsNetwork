@@ -8,7 +8,7 @@ import { provideTranslateService } from '@ngx-translate/core';
 
 import { routes } from './app.routes';
 import { AuthService } from './core/auth.service';
-import { ContributeComponent } from './features/contribute/contribute.component';
+import { ContributePage } from './features/contribute/contribute.page';
 import { fakeAuthService, fakeSession, loadCatalogues } from './testing/test-helpers';
 
 describe('app routes', () => {
@@ -36,7 +36,7 @@ describe('app routes', () => {
   it('serves the contributor page at /c with no session', async () => {
     const component = await harness.navigateByUrl('/c');
 
-    expect(component).toBeInstanceOf(ContributeComponent);
+    expect(component).toBeInstanceOf(ContributePage);
     expect(url()).toBe('/c');
   });
 

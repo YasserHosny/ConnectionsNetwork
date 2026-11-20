@@ -23,7 +23,7 @@ export const routes: Routes = [
       {
         path: 'c',
         loadComponent: () =>
-          import('./features/contribute/contribute.component').then((m) => m.ContributeComponent),
+          import('./features/contribute/contribute.page').then((m) => m.ContributePage),
       },
       {
         path: '',

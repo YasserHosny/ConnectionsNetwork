@@ -84,6 +84,8 @@ export function personErrorMessage(error: ApiError): PersonErrorMessage {
       // The auth codes are matched by status: a code like `auth.forbidden` would read as an i18n key.
       if (error.status === 401) return message('person.errors.sessionEnded');
       if (error.status === 403) return message('person.errors.forbidden');
+      // Rate limited: nothing was refused about the data, so no draft; wait and press save again.
+      if (error.status === 429) return message('person.errors.tooManyRequests');
       return message('person.errors.generic');
   }
 }
@@ -126,6 +128,7 @@ export function actionErrorKey(error: ApiError, notFoundKey = 'person.errors.not
     default:
       if (error.status === 401) return 'person.errors.sessionEnded';
       if (error.status === 403) return 'person.errors.forbidden';
+      if (error.status === 429) return 'person.errors.tooManyRequests';
       return 'person.errors.generic';
   }
 }

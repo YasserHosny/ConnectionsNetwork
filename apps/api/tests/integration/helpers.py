@@ -52,6 +52,34 @@ def make_network(conn: psycopg.Connection[Any], *, name: str = "Test network") -
     )
 
 
+def make_member(conn: psycopg.Connection[Any], network: NetworkFixture) -> dict[str, str]:
+    """An active `member` account in the network, with their own person. Returns their claims.
+
+    The claims are what the access token hook stamps for a member (spec 7.1): no `aal2`, since
+    members are not admins and are not required to complete TOTP MFA.
+    """
+    user_id = uuid4()
+    with conn.transaction():
+        conn.execute(
+            "insert into auth.users (id, email) values (%s, %s)",
+            (user_id, f"member-{user_id}@example.test"),
+        )
+        person_id = make_person(conn, network.network_id, name_latin="Network Member")
+        conn.execute(
+            "insert into member (network_id, user_id, person_id, role, status)"
+            " values (%s, %s, %s, 'member', 'active')",
+            (network.network_id, user_id, person_id),
+        )
+    return {
+        "sub": str(user_id),
+        "network_id": str(network.network_id),
+        "member_role": "member",
+        "person_id": str(person_id),
+        "role": "authenticated",
+        "aal": "aal1",
+    }
+
+
 def make_person(
     conn: psycopg.Connection[Any],
     network_id: UUID,

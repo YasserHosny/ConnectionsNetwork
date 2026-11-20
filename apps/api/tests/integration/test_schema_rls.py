@@ -147,6 +147,30 @@ def test_every_table_is_network_scoped_with_forced_rls(conn: psycopg.Connection[
         assert has_network_id or name == "network", f"{name}: needs network_id not null"
 
 
+def test_every_policy_checks_what_it_writes(conn: psycopg.Connection[Any]) -> None:
+    """A policy without WITH CHECK lets a role write rows its USING clause would hide.
+
+    For FOR ALL and UPDATE, Postgres reuses USING as the check when WITH CHECK is omitted, so the
+    omission is silent; for INSERT a missing check is an unconditional allow. Every policy that
+    can write therefore states its WITH CHECK explicitly, and every table has a policy at all
+    (a table with RLS forced and no policy is merely closed, which is almost never intended).
+    """
+    policies = conn.execute(
+        "select tablename, policyname, cmd, with_check is not null"
+        " from pg_policies where schemaname = 'public'"
+    ).fetchall()
+
+    assert set(_public_tables(conn)) <= {row[0] for row in policies}, (
+        "every public table needs at least one policy"
+    )
+    unchecked = [
+        f"{table}.{name} ({cmd})"
+        for table, name, cmd, has_check in policies
+        if cmd in {"ALL", "INSERT", "UPDATE"} and not has_check
+    ]
+    assert unchecked == []
+
+
 def test_admin_sees_own_network_only(conn: psycopg.Connection[Any], networks: MakeNetwork) -> None:
     a = networks()
     b = networks()
@@ -194,12 +218,19 @@ def test_cross_network_insert_rejected(networks: MakeNetwork) -> None:
             )
 
 
-def test_member_role_claim_is_not_admin(networks: MakeNetwork) -> None:
+def test_member_role_claim_is_not_admin(
+    conn: psycopg.Connection[Any], networks: MakeNetwork
+) -> None:
     network = networks()
+    make_person(conn, network.network_id, name_latin="Someone Else")
     member_claims = {**network.admin_claims, "member_role": "member"}
 
+    # Member visibility itself is covered in test_member_visibility.py. Here: the admin policy
+    # does not match, so the same person_id sees only its own person, not the network's.
     with db.user_tx(member_claims, dsn=DSN) as tx:
-        assert _count(tx, "person") == 0
+        assert _count(tx, "person") == 1
+        assert _count(tx, "member") == 0
+        assert _count(tx, "network") == 0
 
 
 def _pair(conn: psycopg.Connection[Any], network: NetworkFixture) -> tuple[UUID, UUID]:

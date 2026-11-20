@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideLocationMocks } from '@angular/common/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Router, provideRouter } from '@angular/router';
+import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { provideTranslateService } from '@ngx-translate/core';
 import type { ContributorInfo } from '@connections/domain-types';
@@ -43,8 +43,12 @@ describe('ContributePage', () => {
   }
 
   /** Opens /c; `info` is the answer to the first request (a body, or an error to flush). */
-  async function open(info: ContributorInfo | { status: number; body?: unknown } | null = INFO): Promise<void> {
-    await harness.navigateByUrl('/c', ContributePage);
+  async function open(
+    info: ContributorInfo | { status: number; body?: unknown } | null = INFO,
+    url = `/c#${TOKEN}`,
+  ): Promise<void> {
+    // The real boot path: the router parses `/c#<token>` itself, fragment included.
+    await harness.navigateByUrl(url, ContributePage);
     fixture().detectChanges();
     if (info === null) return;
     const request = http.expectOne('/api/v1/contribute/info');
@@ -114,12 +118,30 @@ describe('ContributePage', () => {
   it('token read from hash and hash removed', async () => {
     expect(location.hash).toBe(`#${TOKEN}`);
 
-    await harness.navigateByUrl('/c', ContributePage);
+    await harness.navigateByUrl(`/c#${TOKEN}`, ContributePage);
+    expect(TestBed.inject(Router).url).toContain(TOKEN); // what the boot path hands the page
+    fixture().detectChanges();
 
     // Gone from the address bar before any request has been made.
     expect(location.hash).toBe('');
     expect(location.href).not.toContain(TOKEN);
-    http.expectOne('/api/v1/contribute/info');
+    const info = http.expectOne('/api/v1/contribute/info');
+    expect(info.request.headers.get('X-Contributor-Token')).toBe(TOKEN);
+    info.flush(INFO);
+    await settle();
+  });
+
+  it('token is gone from the router state too, not only from the address bar', async () => {
+    await open();
+
+    const router = TestBed.inject(Router);
+    const route = harness.routeDebugElement!.injector.get(ActivatedRoute);
+    expect(router.url).toBe('/c');
+    expect(router.url).not.toContain(TOKEN);
+    expect(router.serializeUrl(router.parseUrl(router.url))).not.toContain(TOKEN);
+    expect(route.snapshot.fragment).toBeNull();
+    expect(location.hash).toBe('');
+    expect(el().querySelector('form')).not.toBeNull(); // the page was kept, not rebuilt or cancelled
   });
 
   it('token sent in header, never in url', async () => {
@@ -144,7 +166,8 @@ describe('ContributePage', () => {
   });
 
   it('sends the info request with the token header and no bearer', async () => {
-    await harness.navigateByUrl('/c', ContributePage);
+    await harness.navigateByUrl(`/c#${TOKEN}`, ContributePage);
+    fixture().detectChanges();
 
     const info = http.expectOne('/api/v1/contribute/info');
     expect(info.request.method).toBe('GET');
@@ -188,7 +211,7 @@ describe('ContributePage', () => {
   it('shows the expired message and calls nothing when the link has no token', async () => {
     openWithHash('');
 
-    await open(null);
+    await open(null, '/c');
 
     expect(text()).toContain(EXPIRED_EN);
     expect(el().querySelector('form')).toBeNull();
@@ -198,7 +221,7 @@ describe('ContributePage', () => {
   it('treats a malformed token as an expired link without calling the server', async () => {
     openWithHash('#bad token%0d%0aX-Evil: 1');
 
-    await open(null);
+    await open(null, '/c#bad%20token');
 
     expect(text()).toContain(EXPIRED_EN);
     expect(location.hash).toBe('');

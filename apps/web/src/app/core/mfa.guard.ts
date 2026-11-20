@@ -2,14 +2,10 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 
 import { AuthService } from './auth.service';
+import { pathOf } from './url-path';
 
 /** Reachable without a session or without MFA: the sign-in screens and the contributor page. */
 const OPEN_PATHS = ['/login', '/mfa', '/c'];
-
-function pathOf(url: string): string {
-  // The contributor token travels in the fragment (/c#token): compare the path alone.
-  return url.split(/[?#]/)[0].replace(/\/+$/, '') || '/';
-}
 
 function isOpen(path: string): boolean {
   return OPEN_PATHS.some((open) => path === open || path.startsWith(`${open}/`));

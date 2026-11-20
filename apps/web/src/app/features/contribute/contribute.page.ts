@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
+import { Router } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 import type { ContributeResponse } from '@connections/domain-types';
 import { type Observable, tap } from 'rxjs';
@@ -29,7 +30,8 @@ type Phase = 'loading' | 'ready' | 'expired' | 'failed';
  * no account, and adds people they know one after another. Each is connected to them.
  *
  * It stands outside the admin shell and never touches the sign-in session. The token is read from
- * the URL fragment, kept in memory and removed from the address bar before the first request.
+ * the URL fragment, kept in memory and removed from the address bar and from the router's state
+ * before the first request.
  * What the contributor added in this visit is listed from memory: nothing is read back from the
  * server, and a reload starts empty.
  */
@@ -179,6 +181,7 @@ export class ContributePage implements OnInit {
   private readonly drafts = inject(DraftStore);
   private readonly locale = inject(LocaleService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
 
   protected readonly draftKey = DRAFT_KEY;
   protected readonly phase = signal<Phase>('loading');
@@ -192,6 +195,7 @@ export class ContributePage implements OnInit {
     // Before any request: the token leaves the address bar first.
     const token = takeTokenFromLocation();
     this.api.setToken(token);
+    this.dropFragmentFromRouter();
     if (!token) {
       // No token to try: say what the server would. A draft stays, for the next time the link is opened.
       this.phase.set('expired');
@@ -230,6 +234,18 @@ export class ContributePage implements OnInit {
     // `record` already ran for this person; this only swaps the form for the thank-you.
     const latest = this.added().at(-1);
     this.justAdded.set(latest?.name ?? '');
+  }
+
+  /**
+   * The router parsed `/c#<token>` itself, so its state (`Router.url`, the route's fragment, and
+   * any navigation error it logs) still holds the token after the address bar is cleaned. Replace
+   * that URL with the same one minus the fragment. The route is reused, so the page stays as it is.
+   */
+  private dropFragmentFromRouter(): void {
+    const url = this.router.parseUrl(this.router.url);
+    if (url.fragment === null) return;
+    url.fragment = null;
+    void this.router.navigateByUrl(url, { replaceUrl: true });
   }
 
   private record(value: PersonFormValue): void {

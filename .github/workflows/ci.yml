@@ -1,0 +1,99 @@
+name: CI
+
+# Every job here is required to merge.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
+  # Cancel superseded PR runs; pushes to main must finish so every merged commit is tested.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: '3.12'
+  NODE_VERSION: '24'
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    # gitleaks-action writes its findings back to the pull request. Without these it fails with
+    # 403 'Resource not accessible by integration'.
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs history to scan the commits a PR adds, not just the tree.
+          fetch-depth: 0
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint backend
+        run: uv run --project apps/api ruff check apps/api
+      - name: Lint workspace
+        # Runs every package's `lint` task through turbo. Nothing to run until the web app
+        # arrives (Task 12), at which point this step starts covering it.
+        run: pnpm lint
+
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Prepare the schema
+        # Setting TEST_DATABASE_URL without preparing the schema would be worse than not setting
+        # it: the database-backed tests stop skipping and start failing on an empty database.
+        # The stand-ins file is shared with scripts/test-db.sh, so local and CI agree.
+        env:
+          PGPASSWORD: postgres
+        run: |
+          shopt -s nullglob
+          export LC_ALL=C
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -q -f supabase/tests/standins.sql
+          for f in supabase/migrations/*.sql; do
+            echo "applying $f"
+            psql -h localhost -U postgres -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+      - name: Run unit and integration tests
+        # TEST_DATABASE_URL is what the database-backed tests look for; without it they SKIP
+        # rather than fail, so omitting it would quietly hollow out this job.
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: uv run --project apps/api pytest

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "connections-api"
+version = "0.1.0"
+description = "Connections Network FastAPI backend"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "psycopg[binary]>=3.2,<4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.4",
+    "httpx==0.28.1",
+    "ruff",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/connections_api"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/connections_api",
+    "pyproject.toml",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ANN"]

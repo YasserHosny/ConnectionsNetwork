@@ -44,6 +44,16 @@ def _test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(key, value)
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> None:
+    """The limiter is process-global, in-memory: start every test with empty budgets."""
+    # Imported here, not at the top: importing the app's modules must wait until the environment
+    # above is in place.
+    from connections_api.shared.rate_limit import limiter
+
+    limiter.reset()
+
+
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 

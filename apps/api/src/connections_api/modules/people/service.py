@@ -34,10 +34,6 @@ from connections_api.modules.people.schemas import (
 type Conn = psycopg.Connection[Any]
 type Row = dict[str, Any]
 
-# Autocomplete: up to this many suggestions; trigram similarity at or above this is "close enough".
-TAG_SUGGESTION_LIMIT = 10
-TAG_SIMILARITY_THRESHOLD = 0.3
-
 
 class CannotDeleteSelfError(ConflictError):
     code = "cannot_delete_self"
@@ -98,37 +94,16 @@ def upsert_tags(
 
 
 def search_tags(conn: Conn, kind: TagKind, q: str) -> list[TagOut]:
-    """Autocomplete: prefix matches on the normalized label first, then close spellings.
+    """Autocomplete through the one suggestion rule, SQL `suggest_tags` (20261119000008).
 
-    An alias answers with its target, once. A blank query lists the first tags alphabetically.
+    Prefix matches on the normalized label first, then close spellings; an alias answers with its
+    target, once. A blank query lists the first tags alphabetically. The contributor endpoint
+    uses the same function, in the link's network.
     """
     rows = _rows(
         conn,
-        """
-        select id, label, category from (
-          select distinct on (target.id)
-                 target.id, target.label, target.category, target.label_norm,
-                 not starts_with(t.label_norm, q.n) as fuzzy,
-                 similarity(t.label_norm, q.n) as sim
-          from tag t
-          join tag target on target.network_id = t.network_id
-                         and target.id = coalesce(t.alias_of_tag_id, t.id),
-               (select normalize_text(%(q)s) as n) q
-          where t.kind = %(kind)s::tag_kind
-            and (q.n = ''
-                 or starts_with(t.label_norm, q.n)
-                 or similarity(t.label_norm, q.n) >= %(threshold)s)
-          order by target.id, fuzzy, sim desc
-        ) matches
-        order by fuzzy, sim desc, label_norm, id
-        limit %(limit)s
-        """,
-        {
-            "q": q,
-            "kind": kind.value,
-            "threshold": TAG_SIMILARITY_THRESHOLD,
-            "limit": TAG_SUGGESTION_LIMIT,
-        },
+        "select id, label, category from suggest_tags(current_network_id(), %s::tag_kind, %s)",
+        (kind.value, q),
     )
     return [TagOut.model_validate(r) for r in rows]
 

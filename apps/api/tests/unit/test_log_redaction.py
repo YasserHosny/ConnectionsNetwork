@@ -60,6 +60,22 @@ def test_log_redaction_covers_exception_text(capsys: pytest.CaptureFixture[str])
     assert EMAIL not in out
 
 
+def test_log_redaction_masks_the_contributor_token_header(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # No code path logs request headers today; if one ever does, the link token must not leak.
+    token = "contributor-link-token-value"
+    configure_logging("info")
+
+    logging.getLogger("test").info(
+        "request", extra={"headers": {"X-Contributor-Token": token, "Accept": "text/html"}}
+    )
+
+    out = _emitted(capsys)
+    assert "text/html" in out
+    assert token not in out
+
+
 def test_log_redaction_keeps_ordinary_text(capsys: pytest.CaptureFixture[str]) -> None:
     configure_logging("info")
 

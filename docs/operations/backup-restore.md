@@ -8,9 +8,12 @@ The Supabase Free plan has no backups, and it pauses a project after 7 days with
 2. uploads the encrypted file to bunny.net Storage as `backups/connections-<UTC date>.dump.age`
    and checks the object is listed with the size it sent;
 3. deletes our `connections-<date>.dump.age` objects dated more than 30 days ago (it never
-   touches other objects, and refuses to delete anything if no recent backup is in the zone);
+   touches other objects, and refuses to delete anything if no recent backup is in the zone).
+   So a person deleted on request (spec 9) remains in the backups for up to 30 days after the
+   deletion, until the last dump taken before it ages out;
 4. calls `GET $WEB_PUBLIC_URL/api/v1/health/db` (Nginx, API, `select 1` on the database; must
-   answer 200) and `GET $SUPABASE_URL/rest/v1/` (any HTTP answer), so the project is not paused. This step runs even when the backup
+   answer 200) and `GET $SUPABASE_URL/rest/v1/` (any HTTP answer: with the Data API turned off, as
+   the deploy checklist's step 3 requires, it answers 404, which is fine), so the project is not paused. This step runs even when the backup
    failed.
 
 The steps are in `scripts/backup.sh`; the workflow installs `postgresql-client-17`, `age` and `jq`

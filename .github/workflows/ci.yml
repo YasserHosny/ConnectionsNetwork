@@ -12,6 +12,10 @@ concurrency:
   # Cancel superseded PR runs; pushes to main must finish so every merged commit is tested.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Read-only by default; a job that needs more (the secret scan) asks for it itself.
+permissions:
+  contents: read
+
 env:
   PYTHON_VERSION: '3.12'
   NODE_VERSION: '24'

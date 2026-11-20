@@ -16,6 +16,7 @@ from connections_api.modules.people.router import router as people_router
 from connections_api.modules.review.router import router as review_router
 from connections_api.modules.search.router import router as search_router
 from connections_api.shared.logging import TraceIdMiddleware, configure_logging
+from connections_api.shared.no_store import NoStoreMiddleware
 from connections_api.shared.rate_limit import HEALTH_DB_LIMIT, configure_rate_limiting, limiter
 
 API_PREFIX = "/api/v1"
@@ -64,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Connections Network API")
     app.add_middleware(TraceIdMiddleware)
+    app.add_middleware(NoStoreMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(active_settings.api_cors_origins),

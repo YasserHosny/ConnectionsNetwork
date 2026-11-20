@@ -12,6 +12,10 @@ Request paths run inside ``user_tx``: a transaction switched to the ``authentica
 ``anon``) role with the verified JWT claims set, so Postgres RLS decides what the request may
 read and write. Contributor-link requests (no session) run inside ``contributor_tx`` instead,
 as the narrow ``contributor_api`` role. ``service_role`` is never used on a request path.
+
+Deployed, DATABASE_URL logs in as ``connections_api`` (20261119000009_api_login_role.sql): a
+role with no table privileges that can only switch to ``authenticated`` and ``contributor_api``.
+A query run outside these helpers is therefore refused rather than run as the RLS-bypassing owner.
 """
 
 from __future__ import annotations

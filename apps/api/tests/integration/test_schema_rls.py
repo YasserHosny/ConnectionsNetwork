@@ -171,6 +171,62 @@ def test_every_policy_checks_what_it_writes(conn: psycopg.Connection[Any]) -> No
     assert unchecked == []
 
 
+# Functions a request role may execute. Everything else in `public` (the token hook, the
+# contributor-link functions) is refused to them; pg_trgm's own functions are not checked.
+_PURE_FUNCTIONS = {
+    "normalize_text", "normalize_phone", "normalize_email", "normalize_url",
+    "current_network_id", "current_member_role", "current_person_id",
+}  # fmt: skip
+_EXECUTABLE_BY = {
+    "anon": _PURE_FUNCTIONS,
+    "authenticated": _PURE_FUNCTIONS | {"upsert_tag", "merge_persons", "suggest_tags"},
+}
+
+
+def test_request_roles_hold_only_the_privileges_they_need(conn: psycopg.Connection[Any]) -> None:
+    """Hosted default privileges are taken back (the stand-ins emulate them).
+
+    TRUNCATE ignores RLS, so `authenticated` holding it would let any signed-in session empty a
+    table; REFERENCES and TRIGGER are not needed either. `anon` holds nothing on any table.
+    """
+    for table in _public_tables(conn):
+        held = conn.execute(
+            "select p, has_table_privilege('authenticated', format('public.%%I', %s::text), p)"
+            " from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE',"
+            "                   'TRUNCATE', 'REFERENCES', 'TRIGGER']) p",
+            (table,),
+        ).fetchall()
+        assert {p for p, has in held if has} == {"SELECT", "INSERT", "UPDATE", "DELETE"}, table
+        anon = conn.execute(
+            "select bool_or(has_table_privilege('anon', format('public.%%I', %s::text), p))"
+            " from unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE',"
+            "                   'TRUNCATE', 'REFERENCES', 'TRIGGER']) p",
+            (table,),
+        ).fetchone()
+        assert anon == (False,), table
+
+    functions = conn.execute(
+        "select p.proname, has_function_privilege('anon', p.oid, 'execute'),"
+        "       has_function_privilege('authenticated', p.oid, 'execute')"
+        " from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'"
+        " where not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass"
+        "                   and d.objid = p.oid and d.deptype = 'e')"
+    ).fetchall()
+    assert {name for name, anon, _ in functions if anon} == _EXECUTABLE_BY["anon"]
+    assert {name for name, _, auth in functions if auth} == _EXECUTABLE_BY["authenticated"]
+
+
+def test_default_privileges_grant_nothing_to_request_roles(conn: psycopg.Connection[Any]) -> None:
+    """A table or function a LATER migration adds must not inherit the hosted grants either."""
+    rows = conn.execute(
+        "select d.defaclobjtype, a.grantee::regrole::text"
+        " from pg_default_acl d join pg_namespace n on n.oid = d.defaclnamespace"
+        " cross join lateral aclexplode(d.defaclacl) a"
+        " where n.nspname = 'public' and a.grantee in ('anon'::regrole, 'authenticated'::regrole)"
+    ).fetchall()
+    assert rows == []
+
+
 def test_admin_sees_own_network_only(conn: psycopg.Connection[Any], networks: MakeNetwork) -> None:
     a = networks()
     b = networks()
@@ -204,6 +260,44 @@ def test_no_claims_sees_nothing(conn: psycopg.Connection[Any], networks: MakeNet
         # Signed in but without a network claim (no active member): every policy denies.
         with db.user_tx({"sub": str(uuid4()), "role": "authenticated"}, dsn=DSN) as tx:
             assert _count(tx, table) == 0, table
+
+
+@pytest.mark.parametrize("aal", ["aal1", None], ids=["aal1", "no aal"])
+def test_admin_without_mfa_sees_nothing(
+    conn: psycopg.Connection[Any], networks: MakeNetwork, aal: str | None
+) -> None:
+    """The admin policies require aal2 in the claims, not only the API (spec 10).
+
+    Hosted Supabase serves `public` to anyone holding the anon key plus a session, so a
+    password-only (aal1) admin session must not reach a single row by going around the API.
+    """
+    network = networks()
+    _seed_every_table(conn, network)
+    claims = {k: v for k, v in network.admin_claims.items() if k != "aal"}
+    if aal is not None:
+        claims["aal"] = aal
+
+    for table in _public_tables(conn):
+        with db.user_tx(claims, dsn=DSN) as tx:
+            assert _count(tx, table) == 0, table
+            assert tx.execute("select public.current_member_role()").fetchone() == (None,)
+
+    with pytest.raises(errors.InsufficientPrivilege, match="row-level security"):
+        with db.user_tx(claims, dsn=DSN) as tx:
+            tx.execute(
+                "insert into person (network_id, name_latin) values (%s, 'Planted')",
+                (network.network_id,),
+            )
+
+
+def test_member_role_is_unaffected_by_aal(networks: MakeNetwork) -> None:
+    network = networks()
+    member_claims = {**network.admin_claims, "member_role": "member", "aal": "aal1"}
+
+    with db.user_tx(member_claims, dsn=DSN) as tx:
+        assert tx.execute("select public.current_member_role()").fetchone() == ("member",)
+    with db.user_tx(network.admin_claims, dsn=DSN) as tx:
+        assert tx.execute("select public.current_member_role()").fetchone() == ("admin",)
 
 
 def test_cross_network_insert_rejected(networks: MakeNetwork) -> None:

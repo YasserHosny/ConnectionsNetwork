@@ -209,5 +209,5 @@ comment on function public.merge_persons(uuid, uuid) is
   'Fold person p_drop into p_keep and delete it. Admin only, invoker rights; see the file header.';
 
 -- Signed-in callers only; the admin check is inside. anon never merges.
-revoke all on function public.merge_persons(uuid, uuid) from public;
+revoke all on function public.merge_persons(uuid, uuid) from public, anon;
 grant execute on function public.merge_persons(uuid, uuid) to authenticated;

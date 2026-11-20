@@ -15,3 +15,11 @@ do $$ begin create role supabase_auth_admin noinherit login password 'postgres';
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant anon, authenticated, service_role to postgres;
+
+-- Hosted Supabase's default privileges: whatever the migration role creates in `public` is
+-- granted to the API roles, TRUNCATE (which ignores RLS) and EXECUTE included. The migrations
+-- must take that back themselves (20261119000003_rls.sql); emulating the hosted defaults here
+-- makes the tests see what hosted would.
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;

@@ -35,14 +35,21 @@ as $$
   )::uuid;
 $$;
 
+-- 'admin' only for a session that completed TOTP MFA (`aal` = 'aal2', spec 10). The API checks
+-- the same thing, but hosted Supabase also serves this schema's tables to whoever holds the public
+-- anon key and a session, so a password-only (aal1) admin session must match no admin policy
+-- here either: it reads as no role at all. merge_persons and every admin policy inherit this.
+-- The member role does not depend on aal (members are not required to use MFA).
 create or replace function public.current_member_role()
 returns text
 language sql
 stable
 as $$
-  select nullif(
-    nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'member_role', ''
-  );
+  select case
+    when c ->> 'member_role' = 'admin' and c ->> 'aal' is distinct from 'aal2' then null
+    else nullif(c ->> 'member_role', '')
+  end
+  from (select nullif(current_setting('request.jwt.claims', true), '')::jsonb as c) claims;
 $$;
 
 create or replace function public.current_person_id()
@@ -58,67 +65,57 @@ $$;
 comment on function public.current_network_id() is
   'The network_id claim from the verified JWT, or NULL. NULL denies every network policy.';
 comment on function public.current_member_role() is
-  'The member_role claim (admin | member) from the verified JWT, or NULL.';
+  'The member_role claim (admin | member) from the verified JWT, or NULL. admin needs aal = aal2.';
 comment on function public.current_person_id() is
   'The person_id claim (the caller''s own person) from the verified JWT, or NULL.';
 
 -- ---------------------------------------------------------------------------
--- network: this table IS the network, so the policy compares id, not network_id.
--- The accessors are wrapped in (select ...) so Postgres evaluates them once per statement.
+-- Every table: RLS enabled and forced, the admin policy for all commands, and the grants.
+-- The one list of tables; a table added later goes here, and nowhere else.
+--
+-- `network` IS the network, so its policy compares id, not network_id. The accessors are wrapped
+-- in (select ...) so Postgres evaluates them once per statement.
+--
+-- Grants: RLS narrows what a role may touch; it does not grant access. Both are required.
+--   * authenticated gets select, insert, update, delete and nothing else. Hosted Supabase's
+--     default privileges hand it ALL on new tables; TRUNCATE ignores RLS (any signed-in session
+--     could empty a table), and REFERENCES and TRIGGER are not needed, so all three are revoked.
+--   * anon (a request with no session) holds nothing on any table: contributor links reach data
+--     only through narrow SECURITY DEFINER functions (spec 11.4) run as contributor_api.
 -- ---------------------------------------------------------------------------
-alter table public.network enable row level security;
-alter table public.network force  row level security;
+grant usage on schema public to anon, authenticated;
 
-create policy network_admin on public.network
-  for all
-  to authenticated
-  using      (id = (select public.current_network_id())
-              and (select public.current_member_role()) = 'admin')
-  with check (id = (select public.current_network_id())
-              and (select public.current_member_role()) = 'admin');
-
--- ---------------------------------------------------------------------------
--- Every network-scoped table: the same admin policy, for all commands.
--- ---------------------------------------------------------------------------
 do $$
 declare
-  t text;
+  t      text;
+  scoped text;
 begin
   foreach t in array array[
-    'member', 'person', 'tag', 'person_skill', 'person_industry', 'social_link',
+    'network', 'member', 'person', 'tag', 'person_skill', 'person_industry', 'social_link',
     'contact_value', 'connection', 'contributor_link', 'duplicate_dismissal'
   ] loop
+    scoped := case when t = 'network' then 'id' else 'network_id' end;
     execute format('alter table public.%I enable row level security', t);
     execute format('alter table public.%I force  row level security', t);
     execute format(
       'create policy %I on public.%I for all to authenticated'
-      '  using      (network_id = (select public.current_network_id())'
+      '  using      (%I = (select public.current_network_id())'
       '              and (select public.current_member_role()) = ''admin'')'
-      '  with check (network_id = (select public.current_network_id())'
+      '  with check (%I = (select public.current_network_id())'
       '              and (select public.current_member_role()) = ''admin'')',
-      t || '_admin', t);
+      t || '_admin', t, scoped, scoped);
+    execute format('grant select, insert, update, delete on public.%I to authenticated', t);
+    execute format('revoke truncate, references, trigger on public.%I from authenticated', t);
+    execute format('revoke all on public.%I from anon', t);
   end loop;
 end
 $$;
 
 -- ---------------------------------------------------------------------------
--- Grants
---
--- RLS narrows what a role may touch; it does not grant access. Both are required. `anon` (a
--- request with no session: contributor links) holds nothing on any table; it reaches data only
--- through narrow SECURITY DEFINER functions (spec 11.4). The explicit revoke also covers hosted
--- projects whose default privileges still auto-grant new tables to anon.
+-- Default privileges: what a LATER migration creates must not inherit the hosted grants either.
+-- Per schema, for the role running the migrations. Functions keep Postgres's built-in EXECUTE
+-- for PUBLIC, which a per-schema default cannot remove: every function revokes it itself.
 -- ---------------------------------------------------------------------------
-grant usage on schema public to anon, authenticated;
-
-grant select, insert, update, delete on
-  public.network, public.member, public.person, public.tag, public.person_skill,
-  public.person_industry, public.social_link, public.contact_value, public.connection,
-  public.contributor_link, public.duplicate_dismissal
-  to authenticated;
-
-revoke all on
-  public.network, public.member, public.person, public.tag, public.person_skill,
-  public.person_industry, public.social_link, public.contact_value, public.connection,
-  public.contributor_link, public.duplicate_dismissal
-  from anon;
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke execute on functions from public, anon, authenticated;

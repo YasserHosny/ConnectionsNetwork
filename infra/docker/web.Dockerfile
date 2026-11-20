@@ -32,7 +32,9 @@ COPY infra/nginx/entrypoint.sh /usr/local/bin/web-entrypoint.sh
 RUN rm -f /usr/share/nginx/html/runtime-config.json && \
     printf '%s\n' "$BUILD_SHA" > /usr/share/nginx/html/version.txt
 
-ENV BACKEND_HOST=api
+# The api container of the same bunny.net app (shared network namespace). An IP, not
+# `localhost`, which may resolve to ::1 where uvicorn does not listen. docker-compose.yml sets `api`.
+ENV BACKEND_HOST=127.0.0.1
 
 EXPOSE 80
 

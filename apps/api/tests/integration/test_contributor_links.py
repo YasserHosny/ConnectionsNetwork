@@ -594,12 +594,13 @@ def test_contributor_api_role_is_narrow(conn: psycopg.Connection[Any]) -> None:
         " where rolname = 'contributor_api'"
     ).fetchone()
     assert role == (False, False, False, True)
-    # The API's login role may switch to it; nothing else (PostgREST's authenticator above all).
+    # The API's login role (connections_api; postgres locally and for scripts) may switch to it;
+    # nothing else (PostgREST's authenticator above all).
     members = conn.execute(
         "select m.member::regrole::text from pg_auth_members m"
-        " where m.roleid = 'contributor_api'::regrole"
+        " where m.roleid = 'contributor_api'::regrole order by 1"
     ).fetchall()
-    assert members == [("postgres",)]
+    assert members == [("connections_api",), ("postgres",)]
     # No privilege on any table.
     assert conn.execute(
         "select count(*) from information_schema.role_table_grants"

@@ -11,7 +11,8 @@ fail() {
 
 : "${SUPABASE_URL:?SUPABASE_URL is required}"
 : "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY is required}"
-BACKEND_HOST="${BACKEND_HOST:-api}"
+# 127.0.0.1: the api container in the same bunny.net app. docker-compose.yml sets `api`.
+BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 export SUPABASE_URL BACKEND_HOST
 
 # The values end up inside an Nginx config and a JSON file, so refuse anything that could break

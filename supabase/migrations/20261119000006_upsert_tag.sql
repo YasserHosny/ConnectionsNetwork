@@ -74,5 +74,5 @@ comment on function public.upsert_tag(uuid, public.tag_kind, text, public.skill_
 
 -- Same grants as the tables: signed-in callers only. anon reaches tags solely through Task 10's
 -- definer function, which owns the call.
-revoke all on function public.upsert_tag(uuid, public.tag_kind, text, public.skill_category) from public;
+revoke all on function public.upsert_tag(uuid, public.tag_kind, text, public.skill_category) from public, anon;
 grant execute on function public.upsert_tag(uuid, public.tag_kind, text, public.skill_category) to authenticated;

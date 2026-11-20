@@ -23,6 +23,10 @@ env:
   BUNNY_API_CONTAINER: connections-api
   BUNNY_WEB_CONTAINER: connections-web
 
+# Third-party actions in this job see the registry login or the bunny.net key, so each is pinned
+# to a full commit SHA (a tag can be moved to other code); the trailing comment names the release.
+# To update one, look up the new release tag's commit and replace both.
+
 jobs:
   deploy:
     name: Build, push and deploy api and web
@@ -38,10 +42,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -55,7 +59,7 @@ jobs:
           echo "web_image=ghcr.io/${OWNER}/connections-web" >> "$GITHUB_OUTPUT"
 
       - name: Build and push api image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: infra/docker/api.Dockerfile
@@ -68,7 +72,7 @@ jobs:
           cache-to: type=gha,scope=api,mode=min
 
       - name: Build and push web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: infra/docker/web.Dockerfile
@@ -82,7 +86,7 @@ jobs:
           cache-to: type=gha,scope=web,mode=max
 
       - name: Update api container on bunny.net Magic Containers
-        uses: BunnyWay/actions/container-update-image@container-update-image_0.2.2
+        uses: BunnyWay/actions/container-update-image@671d620bdaac002d2aa7f3dd0dda03dd99c5b749 # container-update-image_0.2.2
         with:
           api_key: ${{ secrets.BUNNY_API_KEY }}
           app_id: ${{ secrets.BUNNY_APP_ID }}
@@ -90,7 +94,7 @@ jobs:
           image_tag: ${{ github.sha }}
 
       - name: Update web container on bunny.net Magic Containers
-        uses: BunnyWay/actions/container-update-image@container-update-image_0.2.2
+        uses: BunnyWay/actions/container-update-image@671d620bdaac002d2aa7f3dd0dda03dd99c5b749 # container-update-image_0.2.2
         with:
           api_key: ${{ secrets.BUNNY_API_KEY }}
           app_id: ${{ secrets.BUNNY_APP_ID }}

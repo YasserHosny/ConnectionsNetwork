@@ -5,11 +5,18 @@
 # project's dashboard (sign-ups off, TOTP MFA on, the custom access token hook registered).
 project_id = "ConnectionsNetwork"
 
+# The Data API (PostgREST, and pg_graphql through it) is OFF, and `public` is not an exposed
+# schema. Nothing in this project uses it: the web app talks to Supabase for Auth only, and the
+# FastAPI API connects to Postgres directly. Exposing `public` would let anyone holding the
+# public anon key plus a session query the tables directly, past the API's checks and rate
+# limits; RLS still holds, but it should not be the only wall. `enabled` switches off the
+# PostgREST service only: the gateway on `port` keeps serving Auth (/auth/v1).
+# The hosted project must match (docs/operations/deploy-checklist.md, "Turn off the Data API").
 [api]
-enabled = true
+enabled = false
 port = 54321
-schemas = ["public", "graphql_public"]
-extra_search_path = ["public", "extensions"]
+schemas = []
+extra_search_path = ["extensions"]
 max_rows = 1000
 
 [db]

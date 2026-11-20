@@ -25,8 +25,9 @@
     `sha256(b"ratelimit:" + token)`, never the stored one. Log redaction masks any field whose
     name contains `token`.
   - **A dedicated role, reachable only through the API.** `contributor_api` is a NOLOGIN role with
-    no table privilege and only `usage` on schema `public`. The API's login role (`postgres`) is
-    its one member. PostgREST's `authenticator` never is. Contributor requests run in
+    no table privilege and only `usage` on schema `public`. The API's login role (`connections_api`,
+    ruling R19; `postgres` locally and in CI) is a member, with `set` and without `inherit`.
+    PostgREST's `authenticator` never is. Contributor requests run in
     `db.contributor_tx()`: a transaction with `set local role contributor_api` and empty claims.
   - **Three definer functions, contributor_api only.** `contributor_link_info`,
     `contributor_tag_suggest` and `contribute_person` (`20261119000008`) are `SECURITY DEFINER`

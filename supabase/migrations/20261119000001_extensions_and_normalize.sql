@@ -11,7 +11,27 @@
 --   * All four are STRICT (NULL in, NULL out) and PARALLEL SAFE.
 
 create extension if not exists "pgcrypto";   -- gen_random_uuid(), digests for contributor tokens
-create extension if not exists "pg_trgm";    -- fuzzy name / tag matching
+
+-- pg_trgm must live in `public`: suggest_tags calls public.similarity and an index uses
+-- gin_trgm_ops. Hosted Supabase may have it installed in `extensions` already, where
+-- `if not exists` would quietly keep it and tag autocomplete would fail at the first request.
+-- So: install it into public, and refuse to go on when an existing install sits elsewhere
+-- (moving an extension is the owner's call; docs/operations/deploy-checklist.md, step 2).
+create extension if not exists "pg_trgm" with schema public;   -- fuzzy name / tag matching
+
+do $$
+declare
+  v_schema text;
+begin
+  select n.nspname into v_schema
+  from pg_catalog.pg_extension e join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+  where e.extname = 'pg_trgm';
+  if v_schema is distinct from 'public' then
+    raise exception 'pg_trgm is installed in schema %, the migrations need it in public', v_schema
+      using hint = 'Run: alter extension pg_trgm set schema public; then apply the migrations again.';
+  end if;
+end
+$$;
 
 -- normalize_text: for search and autocomplete.
 --   lowercase; Arabic letter folding (alef variants and wasla to bare alef, taa marbuta to haa,

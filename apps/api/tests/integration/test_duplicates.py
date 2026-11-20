@@ -715,6 +715,10 @@ def test_merge_function_refuses_anyone_but_the_admin(
         tx.execute("select merge_persons(%s, %s)", (keep, drop))
     with pytest.raises(errors.InsufficientPrivilege), db.user_tx(anon_claims, DSN) as tx:
         tx.execute("select merge_persons(%s, %s)", (keep, drop))
+    # An admin session without TOTP (aal1) is refused by the database itself, not only the API.
+    aal1_admin = {**network.admin_claims, "aal": "aal1"}
+    with pytest.raises(errors.InsufficientPrivilege), db.user_tx(aal1_admin, DSN) as tx:
+        tx.execute("select merge_persons(%s, %s)", (keep, drop))
     assert rows(conn, "select count(*) from person where id = any(%s)", [keep, drop]) == [(2,)]
 
 

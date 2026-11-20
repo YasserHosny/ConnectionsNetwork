@@ -39,7 +39,9 @@ end
 $$;
 
 grant usage on schema public to contributor_api;
--- The API's login role (postgres locally, in CI and on hosted) may `set role contributor_api`.
+-- The role running the migrations (postgres) may `set role contributor_api`: the tests and local
+-- development connect as it. The deployed API's login, connections_api, is granted it in
+-- 20261119000009_api_login_role.sql.
 grant contributor_api to current_user;
 
 -- ---------------------------------------------------------------------------

@@ -269,4 +269,12 @@ one budget, bunny.net's edge address is what Nginx forwards, and Nginx needs `se
 for the edge ranges (`nginx.conf`).
 
 Last, the product smoke: sign in as the admin with TOTP, add a person, create a contributor link,
-use it in a private window.
+use it in a private window. (Do not send a link to anyone else yet: step 11 comes first.)
+
+## 11. Before sending the first contributor link: back up and run the restore drill
+
+The Free plan has no backups. Set up the nightly encrypted backup and **run the restore drill before
+the first contributor link is sent** (spec section 10): `docs/operations/backup-restore.md`, sections
+1 and 2. Fill in the first row of its drill log; the row is the evidence that a backup can be read
+and restored with equal `person`, `connection` and `contact_value` counts. The same job's keepalive
+stops the project pausing after 7 days without activity.

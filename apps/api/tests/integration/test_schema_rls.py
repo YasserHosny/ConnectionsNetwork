@@ -208,6 +208,95 @@ def _pair(conn: psycopg.Connection[Any], network: NetworkFixture) -> tuple[UUID,
     return a, b
 
 
+# Each statement is written by admin A, in network A, but points at an object of network B.
+# Foreign-key checks bypass RLS, so only network-scoped (composite) foreign keys reject these.
+# Placeholders: {a} A's network, {pa} A's admin person, {pb} B's admin person, {qb} a B person
+# with no account, {tb} a tag in B, {lb} a contributor link in B, {u} a fresh auth.users id.
+CROSS_NETWORK_REFERENCES = {
+    "connection to B's person": (
+        "insert into connection (network_id, person_a, person_b, strength)"
+        " values ({a}, least({pa}, {pb}), greatest({pa}, {pb}), 'strong')"
+    ),
+    "person_skill with B's tag": (
+        "insert into person_skill (network_id, person_id, tag_id) values ({a}, {pa}, {tb})"
+    ),
+    "person_industry for B's person": (
+        "insert into person_industry (network_id, person_id, tag_id) values ({a}, {pb}, {tb})"
+    ),
+    "social_link for B's person": (
+        "insert into social_link (network_id, person_id, kind, url)"
+        " values ({a}, {pb}, 'github', 'https://github.com/x')"
+    ),
+    "contact_value added by B's person": (
+        "insert into contact_value (network_id, person_id, kind, value, added_by_person_id)"
+        " values ({a}, {pa}, 'email', 'x@example.test', {pb})"
+    ),
+    "person created by B's person": (
+        "insert into person (network_id, name_latin, created_by_person_id) values ({a}, 'X', {pb})"
+    ),
+    "person from B's contributor link": (
+        "insert into person (network_id, name_latin, contributor_link_id) values ({a}, 'X', {lb})"
+    ),
+    "tag aliasing B's tag": (
+        "insert into tag (network_id, kind, category, label, alias_of_tag_id)"
+        " values ({a}, 'skill', 'business', 'mktg', {tb})"
+    ),
+    "contributor_link for B's person": (
+        "insert into contributor_link (network_id, person_id, token_hash)"
+        " values ({a}, {pb}, sha256('x'::bytea))"
+    ),
+    "member for B's person": (
+        "insert into member (network_id, user_id, person_id, role)"
+        " values ({a}, {u}, {qb}, 'member')"
+    ),
+    "duplicate_dismissal with B's person": (
+        "insert into duplicate_dismissal (network_id, person_a, person_b)"
+        " values ({a}, least({pa}, {pb}), greatest({pa}, {pb}))"
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "statement", CROSS_NETWORK_REFERENCES.values(), ids=list(CROSS_NETWORK_REFERENCES)
+)
+def test_cross_network_reference_rejected(
+    conn: psycopg.Connection[Any], networks: MakeNetwork, statement: str
+) -> None:
+    a = networks()
+    b = networks()
+    tb = conn.execute(
+        "insert into tag (network_id, kind, category, label)"
+        " values (%s, 'skill', 'business', 'Marketing') returning id",
+        (b.network_id,),
+    ).fetchone()
+    lb = conn.execute(
+        "insert into contributor_link (network_id, person_id, token_hash)"
+        " values (%s, %s, sha256('b'::bytea)) returning id",
+        (b.network_id, b.admin_person_id),
+    ).fetchone()
+    assert tb is not None
+    assert lb is not None
+    user_id = uuid4()
+    conn.execute("insert into auth.users (id) values (%s)", (user_id,))
+    values = {
+        "a": a.network_id,
+        "pa": a.admin_person_id,
+        "pb": b.admin_person_id,
+        "qb": make_person(conn, b.network_id),
+        "tb": tb[0],
+        "lb": lb[0],
+        "u": user_id,
+    }
+    query = sql.SQL(statement).format(**{k: sql.Literal(v) for k, v in values.items()})
+
+    try:
+        with pytest.raises(errors.ForeignKeyViolation):
+            with db.user_tx(a.admin_claims, dsn=DSN) as tx:
+                tx.execute(query)
+    finally:
+        conn.execute("delete from auth.users where id = %s", (user_id,))
+
+
 def test_connection_pair_unique(conn: psycopg.Connection[Any], networks: MakeNetwork) -> None:
     network = networks()
     a, b = _pair(conn, network)
@@ -353,3 +442,50 @@ def test_user_tx_rolls_back_on_error(networks: MakeNetwork) -> None:
     with db.user_tx(network.admin_claims, dsn=DSN) as tx:
         row = tx.execute("select count(*) from person where name_latin = 'Rolled Back'").fetchone()
     assert row == (0,)
+
+
+def test_person_delete_cascades_and_nulls_provenance(
+    conn: psycopg.Connection[Any], networks: MakeNetwork
+) -> None:
+    """Deleting a contributor removes their own data and edges; the people they added stay."""
+    network = networks()
+    nid = network.network_id
+    contributor = make_person(conn, nid, name_latin="Contributor")
+    added = conn.execute(
+        "insert into person (network_id, name_latin, created_by_person_id)"
+        " values (%s, 'Added', %s) returning id",
+        (nid, contributor),
+    ).fetchone()
+    assert added is not None
+    a, b = sorted([contributor, added[0]])
+    conn.execute(
+        "insert into connection (network_id, person_a, person_b, strength, created_by_person_id)"
+        " values (%s, %s, %s, 'strong', %s)",
+        (nid, a, b, contributor),
+    )
+    conn.execute(
+        "insert into contact_value (network_id, person_id, kind, value, added_by_person_id)"
+        " values (%s, %s, 'email', 'added@example.test', %s)",
+        (nid, added[0], contributor),
+    )
+    conn.execute(
+        "insert into contributor_link (network_id, person_id, token_hash)"
+        " values (%s, %s, sha256('c'::bytea))",
+        (nid, contributor),
+    )
+
+    conn.execute("delete from person where id = %s", (contributor,))
+
+    assert conn.execute(
+        "select network_id, created_by_person_id from person where id = %s", (added[0],)
+    ).fetchone() == (nid, None)
+    assert conn.execute(
+        "select network_id, added_by_person_id from contact_value where person_id = %s",
+        (added[0],),
+    ).fetchone() == (nid, None)
+    assert conn.execute(
+        "select count(*) from connection where %s in (person_a, person_b)", (contributor,)
+    ).fetchone() == (0,)
+    assert conn.execute(
+        "select count(*) from contributor_link where person_id = %s", (contributor,)
+    ).fetchone() == (0,)

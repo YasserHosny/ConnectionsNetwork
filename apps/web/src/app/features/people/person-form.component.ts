@@ -556,13 +556,16 @@ export class PersonFormComponent implements OnInit {
   private onFailure(failure: unknown, value: PersonFormValue): void {
     const apiError = toApiError(failure);
     this.busy.set(false);
-    if (apiError.code === 'mfa_required') {
+    // Keep the entry for a network or server failure (nothing about the data was refused), and
+    // for a lapsed MFA step: the admin is sent to /mfa and must find their input on return.
+    // Any other rejection (a 4xx about the data) never saves a draft.
+    const mfaRequired = apiError.code === 'mfa_required';
+    const message = personErrorMessage(apiError);
+    if (message.retryable || mfaRequired) this.drafts.save(this.draftKey(), value);
+    if (mfaRequired) {
       void this.router.navigateByUrl('/mfa');
       return;
     }
-    const message = personErrorMessage(apiError);
-    // Only a network or server failure says nothing about the data: keep it for a retry.
-    if (message.retryable) this.drafts.save(this.draftKey(), value);
     this.error.set(message);
     this.cdr.markForCheck();
   }

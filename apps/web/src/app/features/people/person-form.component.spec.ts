@@ -181,7 +181,7 @@ describe('PersonFormComponent', () => {
     expect(alertText()).not.toContain('Request validation failed.');
   });
 
-  it('sends an admin whose MFA lapsed to /mfa', async () => {
+  it('keeps the draft and sends an admin whose MFA lapsed to /mfa', async () => {
     submitter.and.returnValue(
       throwError(() => new ApiError('mfa_required', 'Multi-factor authentication is required.', 403)),
     );
@@ -192,7 +192,26 @@ describe('PersonFormComponent', () => {
 
     await submit();
 
+    expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
+    expect(drafts.load<PersonFormValue>('add-person')?.strength).toBe('weak');
     expect(navigate).toHaveBeenCalledWith('/mfa');
+  });
+
+  it('restores the typed input when the page is reopened after an MFA step', async () => {
+    submitter.and.returnValue(
+      throwError(() => new ApiError('mfa_required', 'Multi-factor authentication is required.', 403)),
+    );
+    spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+    create();
+    setText('nameLatin', 'Sara Ali');
+    chooseStrength('weak');
+    await submit();
+    fixture.destroy();
+
+    create();
+
+    expect(field('nameLatin').value).toBe('Sara Ali');
+    expect(el().querySelector('.draft-note')).not.toBeNull();
   });
 
   it('restores a saved draft, and discarding it clears the form', async () => {

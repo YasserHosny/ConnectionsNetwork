@@ -33,10 +33,9 @@ from psycopg.rows import dict_row
 
 from connections_api.deps import AdminContext
 from connections_api.errors import NotFoundError, ValidationFailed
+from connections_api.modules.graph.loader import load_graph
 from connections_api.modules.graph.paths import (
-    Graph,
     PathResult,
-    build_graph,
     k_shortest_paths,
     shortest_paths_from,
 )
@@ -45,7 +44,6 @@ from connections_api.modules.people.schemas import (
     Seniority,
     SkillCategory,
     SkillLevel,
-    Strength,
 )
 from connections_api.modules.people.service import display_name, is_stale_sql
 from connections_api.modules.search.schemas import (
@@ -137,12 +135,6 @@ _TEXT_MATCH = """(
    or exists (select 1 from person_industry pi join tag t on t.id = pi.tag_id
               where pi.person_id = p.id and t.label_norm like %(q_like)s)
 )"""
-
-
-def _load_graph(conn: Conn) -> Graph:
-    """Every connection of the admin's network (row-level security), once per request."""
-    rows = conn.execute("select person_a, person_b, strength from connection").fetchall()
-    return build_graph((a, b, Strength(strength)) for a, b, strength in rows)
 
 
 def _names(conn: Conn, person_ids: set[UUID]) -> dict[UUID, str]:
@@ -298,7 +290,7 @@ def search_people(conn: Conn, ctx: AdminContext, criteria: SearchCriteria) -> li
         return []
 
     skills = _matched_skills(conn, plan, [c["id"] for c in candidates])
-    paths = shortest_paths_from(_load_graph(conn), ctx.person_id)
+    paths = shortest_paths_from(load_graph(conn), ctx.person_id)
 
     def ranked(c: Row) -> tuple[bool, int, int, str, str, str]:
         found = paths.get(c["id"])
@@ -351,6 +343,6 @@ def alternative_paths(
     exists = conn.execute("select 1 from person where id = %s", (person_id,)).fetchone()
     if exists is None:
         raise NotFoundError()
-    found = k_shortest_paths(_load_graph(conn), ctx.person_id, person_id, k)
+    found = k_shortest_paths(load_graph(conn), ctx.person_id, person_id, k)
     names = _names(conn, {node for r in found for node in r.path})
     return [AlternativePath(cost=r.cost, path=_path_nodes(r.path, names)) for r in found]

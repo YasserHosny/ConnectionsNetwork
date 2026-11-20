@@ -7,8 +7,10 @@ from pydantic import BaseModel
 from connections_api.config import Settings, get_settings
 from connections_api.errors import register_exception_handlers
 from connections_api.modules.duplicates.router import router as duplicates_router
+from connections_api.modules.export.router import router as export_router
 from connections_api.modules.links.router import router as links_router
 from connections_api.modules.people.router import router as people_router
+from connections_api.modules.review.router import router as review_router
 from connections_api.modules.search.router import router as search_router
 from connections_api.shared.logging import TraceIdMiddleware, configure_logging
 from connections_api.shared.rate_limit import configure_rate_limiting
@@ -49,6 +51,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(search_router, prefix=API_PREFIX)
     app.include_router(duplicates_router, prefix=API_PREFIX)
     app.include_router(links_router, prefix=API_PREFIX)
+    app.include_router(review_router, prefix=API_PREFIX)
+    app.include_router(export_router, prefix=API_PREFIX)
     return app
 
 

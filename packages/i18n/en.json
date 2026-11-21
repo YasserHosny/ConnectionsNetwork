@@ -341,7 +341,7 @@
     },
     "share": {
       "message": "Hi, I am adding the people I know to my network. Please add the people you know here: {{url}}",
-    "updateMessage": "Hi, I am updating my network. Has anything about you changed (job, company, city, phone)? Just reply here and I will update it. You can also add the people you know here: {{url}}"
+      "updateMessage": "Hi, I am updating my network. Has anything about you changed (job, company, city, phone)? Just reply here and I will update it. You can also add the people you know here: {{url}}"
     },
     "errors": {
       "notFound": "This link was not found. The list was refreshed."

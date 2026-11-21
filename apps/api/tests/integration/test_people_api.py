@@ -921,8 +921,17 @@ def test_edit_failing_midway_leaves_the_person_unchanged(
     # last_confirmed_at and is_stale: the deletes and the profile update were rolled back.
 
 
+def _contact_rows(conn: psycopg.Connection[Any], pid: str) -> list[tuple[str, str, Any]]:
+    rows = conn.execute(
+        "select kind::text, value, added_by_person_id from contact_value"
+        " where person_id = %s order by id",
+        (pid,),
+    ).fetchall()
+    return [(kind, value, added_by) for kind, value, added_by in rows]
+
+
 @pytest.mark.parametrize("still_sent", [True, False])
-def test_edit_removes_every_duplicate_row_of_a_contact_value(
+def test_edit_keeps_each_contributors_row_of_a_value_still_sent_and_drops_all_when_removed(
     client: TestClient,
     network: NetworkFixture,
     conn: psycopg.Connection[Any],
@@ -934,6 +943,7 @@ def test_edit_removes_every_duplicate_row_of_a_contact_value(
     ]
     pid = created["id"]
     # The admin entered the number; a contributor later added the very same value (no uniqueness).
+    # merge_persons keeps both rows too: member visibility depends on who added each one.
     conn.execute(
         "insert into contact_value (network_id, person_id, kind, value, added_by_person_id)"
         " values (%s, %s, 'phone', '01012345678', %s)",
@@ -945,10 +955,41 @@ def test_edit_removes_every_duplicate_row_of_a_contact_value(
     response = client.put(f"/api/v1/people/{pid}", json=person_body(contacts=contacts))
 
     assert response.status_code == 200
-    assert len(response.json()["contacts"]) == len(contacts)
-    assert count(conn, "select count(*) from contact_value where person_id = %s", pid) == len(
-        contacts
+    rows = _contact_rows(conn, pid)
+    if still_sent:
+        assert sorted(str(added_by) for _, _, added_by in rows) == sorted(
+            [str(network.admin_person_id), str(contributor)]
+        )
+        assert len(response.json()["contacts"]) == 2
+    else:
+        assert rows == []
+        assert response.json()["contacts"] == []
+
+
+def test_edit_keeps_one_row_when_the_same_value_was_added_twice_by_the_same_person(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    created = create(client, network, contacts=[{"kind": "phone", "value": "01012345678"}])[
+        "person"
+    ]
+    pid = created["id"]
+    conn.execute(
+        "insert into contact_value (network_id, person_id, kind, value, added_by_person_id)"
+        " values (%s, %s, 'phone', '01012345678', %s)",
+        (network.network_id, pid, network.admin_person_id),
     )
+    assert count(conn, "select count(*) from contact_value where person_id = %s", pid) == 2
+
+    response = client.put(
+        f"/api/v1/people/{pid}",
+        json=person_body(contacts=[{"kind": "phone", "value": "01012345678"}]),
+    )
+
+    assert response.status_code == 200
+    rows = _contact_rows(conn, pid)
+    assert [(kind, value, str(added_by)) for kind, value, added_by in rows] == [
+        ("phone", "01012345678", str(network.admin_person_id))
+    ]
 
 
 # -- Idempotency-Key on create (spec 11.1, ruling R18) -------------------------------------------

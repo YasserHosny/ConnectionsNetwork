@@ -238,24 +238,33 @@ def _sync_contacts(conn: Conn, ctx: AdminContext, person_id: UUID, data: PersonI
     re-saving the form must not take over a contributor's phone number. New values are the
     admin's; values no longer sent are deleted.
     """
-    incoming = _incoming_contacts(data)
-    # contact_value has no uniqueness: a contributor may have added a value the admin entered, so
-    # one (kind, value) can be several rows.
-    existing: dict[tuple[str, str], list[UUID]] = {}
+    incoming = set(_incoming_contacts(data))
+    # contact_value has no uniqueness: one (kind, value) can be several rows, one per person who
+    # added it (merge_persons keeps them all: a member sees a value because they added it). Only
+    # rows with the same value *and* the same adder are true duplicates.
+    by_attribution: dict[tuple[str, str, UUID | None], list[UUID]] = {}
+    present: set[tuple[str, str]] = set()
     for r in _rows(
         conn,
-        "select id, kind, value from contact_value where person_id = %s order by id",
+        "select id, kind, value, added_by_person_id from contact_value"
+        " where person_id = %s order by id",
         (person_id,),
     ):
-        existing.setdefault((r["kind"], r["value"]), []).append(r["id"])
+        by_attribution.setdefault((r["kind"], r["value"], r["added_by_person_id"]), []).append(
+            r["id"]
+        )
+        present.add((r["kind"], r["value"]))
     gone = [
         row_id
-        for key, ids in existing.items()
-        for row_id in (ids[1:] if key in incoming else ids)  # keep one row of a value still sent
+        for (kind, value, _added_by), ids in by_attribution.items()
+        # A value still sent keeps one row per adder; a value no longer sent loses every row.
+        for row_id in (ids[1:] if (kind, value) in incoming else ids)
     ]
     if gone:
         conn.execute("delete from contact_value where id = any(%s)", (gone,))
-    _insert_contacts(conn, ctx, person_id, [key for key in incoming if key not in existing])
+    _insert_contacts(
+        conn, ctx, person_id, [key for key in _incoming_contacts(data) if key not in present]
+    )
 
 
 def _insert_connection(

@@ -65,6 +65,7 @@ describe('UnreachablePage', () => {
         provideRouter([
           { path: 'review/unreachable', component: UnreachablePage },
           { path: 'mfa', children: [] },
+          { path: 'login', children: [] },
         ]),
         provideLocationMocks(),
         provideHttpClient(),
@@ -195,6 +196,26 @@ describe('UnreachablePage', () => {
     await settle();
 
     expect(router.url).toBe('/mfa');
+    // The router moved on, but a dialog does not close on that by itself: it must not stay open over /mfa.
+    await waitFor(fixture(), () => !dialog());
+    expect(dialog()).toBeNull();
+  });
+
+  it('closes the dialog and goes to /login when the session has ended', async () => {
+    await open();
+    await openConnectDialog();
+
+    chooseStrength('normal');
+    submit();
+    http.expectOne('/api/v1/connections').flush(
+      { code: 'unauthorized', message: 'x', details: null, trace_id: 't' },
+      { status: 401, statusText: 'Unauthorized' },
+    );
+    await settle();
+
+    await waitFor(fixture(), () => router.url === '/login');
+    await waitFor(fixture(), () => !dialog());
+    expect(dialog()).toBeNull();
   });
 
   it('closes the dialog without sending anything on cancel', async () => {

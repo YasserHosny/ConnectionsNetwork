@@ -126,8 +126,15 @@ export class ConnectDialog {
     this.api.post('/connections', body).subscribe({
       next: () => this.ref.close(true),
       error: (failure: unknown) => {
+        const apiError = toApiError(failure);
+        if (apiError.code === 'mfa_required' || apiError.status === 401) {
+          // ApiClient is already sending the admin to /mfa or /login. A dialog does not close when
+          // the router navigates, so close it here: it must not stay open over that page.
+          this.ref.close(false);
+          return;
+        }
         this.busy.set(false);
-        this.error.set(actionErrorKey(toApiError(failure)));
+        this.error.set(actionErrorKey(apiError));
       },
     });
   }

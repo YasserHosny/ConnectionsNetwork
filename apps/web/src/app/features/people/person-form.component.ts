@@ -69,7 +69,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 interface DraftMeta {
   /** The Idempotency-Key of the submission that failed, so its retry is the same submission. */
   idempotencyKey?: string;
-  /** Whose draft it is (the contributor's name), when the form is given a `draftOwner`. */
+  /** Whose draft it is (the contributor link's token digest), when the form is given a `draftOwner`. */
   draftOwner?: string;
   savedAt?: string;
 }
@@ -462,7 +462,7 @@ export class PersonFormComponent implements OnInit {
   readonly contributor = input(false);
   /** Where tag suggestions come from; the admin's `/tags` when not given. */
   readonly suggestSource = input<TagSuggest | null>(null);
-  /** Whose draft this is (the contributor's name): another owner's draft is dropped, not shown. */
+  /** Whose draft this is (the contributor link's token digest): another owner's draft is dropped, not shown. */
   readonly draftOwner = input<string | null>(null);
   /** A draft older than this is dropped on open; drafts do not expire when not given. */
   readonly draftMaxAgeDays = input<number | null>(null);

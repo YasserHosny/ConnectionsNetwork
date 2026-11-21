@@ -52,6 +52,16 @@ export function takeToken(): TokenLookup {
   return kept && TOKEN_PATTERN.test(kept) ? { token: kept } : { token: null, reason: 'missing' };
 }
 
+/**
+ * A stable, one-way label for a token (SHA-256, lowercase hex): what ties a saved draft to the link
+ * it was typed under without writing the token itself to localStorage. Rejects when the browser has
+ * no `crypto.subtle` (an insecure page), so the caller must decide what a draft is then worth.
+ */
+export async function tokenDigest(token: string): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /** Forgets the kept token: the link is dead (expired, revoked, unknown). */
 export function forgetToken(): void {
   session((storage) => storage.removeItem(TOKEN_STORAGE_KEY));

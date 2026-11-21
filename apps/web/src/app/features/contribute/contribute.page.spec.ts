@@ -367,11 +367,17 @@ describe('ContributePage', () => {
     expect(el().querySelectorAll('.session-list li').length).toBe(1);
   });
 
+  /** The SHA-256 of a token as lowercase hex, computed here independently of the page. */
+  async function digestOf(token: string): Promise<string> {
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+    return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
   it('restores a draft saved earlier under the same link', async () => {
     drafts.save('contribute', {
       nameLatin: 'Half typed',
       strength: 'normal',
-      draftOwner: 'Karim Adel',
+      draftOwner: await digestOf(TOKEN),
       savedAt: new Date().toISOString(),
     });
 
@@ -383,7 +389,7 @@ describe('ContributePage', () => {
   it('drops a draft typed under another contributor\'s link', async () => {
     drafts.save('contribute', {
       nameLatin: 'Someone else\'s contact',
-      draftOwner: 'Hoda Samir',
+      draftOwner: await digestOf('ANOTHER_TOKEN_xyz'),
       savedAt: new Date().toISOString(),
     });
 
@@ -391,6 +397,45 @@ describe('ContributePage', () => {
 
     expect(field('nameLatin').value).toBe('');
     expect(drafts.load('contribute')).toBeNull();
+  });
+
+  it('drops a draft typed under another link that has the same display name', async () => {
+    // Two contributors can share a display name: the name must not decide whose draft it is.
+    drafts.save('contribute', {
+      nameLatin: 'Other Karim\'s contact',
+      draftOwner: await digestOf('A_DIFFERENT_LINK_same_name'),
+      savedAt: new Date().toISOString(),
+    });
+
+    await open(); // INFO names "Karim Adel", the same name the other link would show
+
+    expect(field('nameLatin').value).toBe('');
+    expect(drafts.load('contribute')).toBeNull();
+  });
+
+  it('drops a draft owned by a display name, the way older versions saved it', async () => {
+    drafts.save('contribute', {
+      nameLatin: 'Left by an older version',
+      draftOwner: INFO.contributor_display_name,
+      savedAt: new Date().toISOString(),
+    });
+
+    await open();
+
+    expect(field('nameLatin').value).toBe('');
+    expect(drafts.load('contribute')).toBeNull();
+  });
+
+  it('keeps the draft under a digest of the token, never the token itself', async () => {
+    await open();
+    await fillAndSubmit('Sara Ali');
+    postRequest().flush(null, { status: 500, statusText: 'Server Error' });
+    await settle();
+
+    const stored = drafts.load<{ draftOwner?: string }>('contribute');
+    expect(stored?.draftOwner).toBe(await digestOf(TOKEN));
+    expect(JSON.stringify(stored)).not.toContain(TOKEN);
+    expect(localStorage.getItem('connections.draft.contribute')).not.toContain(TOKEN);
   });
 
   it('sends an Idempotency-Key with each person, and the same one on a retry', async () => {

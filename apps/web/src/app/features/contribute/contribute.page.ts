@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, PendingTasks, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { Router } from '@angular/router';
@@ -13,7 +13,7 @@ import { LocaleService } from '../../core/locale.service';
 import { LanguageSwitchComponent } from '../../layout/language-switch.component';
 import { PersonFormComponent } from '../people/person-form.component';
 import type { PersonFormValue, TagSuggest } from '../people/person-form.model';
-import { ContributeApi, forgetToken, isLinkInvalid, isRateLimited, takeToken } from './contribute-api';
+import { ContributeApi, forgetToken, isLinkInvalid, isRateLimited, takeToken, tokenDigest } from './contribute-api';
 
 /**
  * Where a contributor's unsent entry is kept: one slot, dropped as soon as the link is dead,
@@ -86,7 +86,7 @@ type Phase = 'loading' | 'ready' | 'expired' | 'noToken' | 'failed';
             <app-person-form
               [contributor]="true"
               [draftKey]="draftKey"
-              [draftOwner]="contributorName()"
+              [draftOwner]="draftOwner()"
               [draftMaxAgeDays]="draftMaxAgeDays"
               [suggestSource]="suggest"
               [submitter]="submit"
@@ -193,12 +193,19 @@ export class ContributePage implements OnInit {
   private readonly locale = inject(LocaleService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+  private readonly pending = inject(PendingTasks);
 
   protected readonly draftKey = DRAFT_KEY;
   protected readonly draftMaxAgeDays = DRAFT_MAX_AGE_DAYS;
   protected readonly phase = signal<Phase>('loading');
   protected readonly failureKey = signal('person.errors.unreachable');
   protected readonly contributorName = signal('');
+  /**
+   * Whose draft this is: a digest of the link's token. Never the display name (two contributors can
+   * share one) and never the token itself.
+   */
+  protected readonly draftOwner = signal<string | null>(null);
+  private token: string | null = null;
   /** The name just added, while the "thank you" is on screen instead of the form. */
   protected readonly justAdded = signal<string | null>(null);
   protected readonly added = signal<AddedPerson[]>([]);
@@ -207,6 +214,7 @@ export class ContributePage implements OnInit {
     // Before any request: the token leaves the address bar first.
     const lookup = takeToken();
     this.api.setToken(lookup.token);
+    this.token = lookup.token;
     this.dropFragmentFromRouter();
     if (lookup.token === null) {
       // Nothing to try. No link at all: ask for the link from the message. Text that cannot be a
@@ -224,8 +232,12 @@ export class ContributePage implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (info) => {
-          this.contributorName.set(info.contributor_display_name);
-          this.phase.set('ready');
+          // The form reads its draft when it opens, so the owner is known before it is shown.
+          void this.ownerOf(this.token).then((owner) => {
+            this.draftOwner.set(owner);
+            this.contributorName.set(info.contributor_display_name);
+            this.phase.set('ready');
+          });
         },
         error: (failure: unknown) => this.onLoadFailure(failure),
       });
@@ -259,6 +271,19 @@ export class ContributePage implements OnInit {
     if (url.fragment === null) return;
     url.fragment = null;
     void this.router.navigateByUrl(url, { replaceUrl: true });
+  }
+
+  /**
+   * The draft owner for this token. Without `crypto.subtle` no digest can be made: the owner is then
+   * a random label that matches nothing, so no earlier draft is ever shown and none is restored later.
+   */
+  private ownerOf(token: string | null): Promise<string> {
+    // The browser computes the digest outside Angular's sight: tell it the page is still busy.
+    const done = this.pending.add();
+    const digest = token === null ? Promise.reject(new Error('no token')) : tokenDigest(token);
+    return digest
+      .catch(() => `unverifiable-${Math.random().toString(36).slice(2)}`)
+      .finally(done);
   }
 
   private record(value: PersonFormValue): void {

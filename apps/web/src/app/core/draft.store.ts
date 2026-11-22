@@ -12,6 +12,16 @@ const PREFIX = 'connections.draft.';
  */
 @Injectable({ providedIn: 'root' })
 export class DraftStore {
+  /**
+   * Bumped by every clearAll() (an explicit sign-out). A save that was in flight when the drafts
+   * were cleared compares the generation it started under and does not write its draft back.
+   */
+  private cleared = 0;
+
+  get generation(): number {
+    return this.cleared;
+  }
+
   save(key: string, value: unknown): void {
     try {
       localStorage.setItem(PREFIX + key, JSON.stringify(value));
@@ -40,6 +50,7 @@ export class DraftStore {
 
   /** Every draft on this device, whatever form it belongs to (sign-out: they hold contact values). */
   clearAll(): void {
+    this.cleared++;
     try {
       const keys: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {

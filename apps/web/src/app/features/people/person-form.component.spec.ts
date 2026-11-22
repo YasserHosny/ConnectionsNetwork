@@ -3,7 +3,7 @@ import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { provideTranslateService } from '@ngx-translate/core';
-import { Observable, of, throwError } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
 
 import { ApiError } from '../../core/api.client';
 import { AuthService } from '../../core/auth.service';
@@ -145,6 +145,50 @@ describe('PersonFormComponent', () => {
     expect(saved).toHaveBeenCalledTimes(1);
     expect(drafts.load('add-person')).toBeNull();
     expect(el().querySelector('button.retry')).toBeNull();
+  });
+
+  describe('a save still in flight', () => {
+    function pendingSave(): Subject<unknown> {
+      const pending = new Subject<unknown>();
+      submitter.and.returnValue(pending.asObservable());
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      return pending;
+    }
+
+    it('does not write its draft back after an explicit sign-out cleared the drafts', async () => {
+      const pending = pendingSave();
+      await submit();
+
+      drafts.clearAll(); // what AuthService.signOut() does on an explicit sign-out
+      pending.error(new ApiError('network_error', 'down', 0));
+      await fixture.whenStable();
+
+      expect(drafts.load('add-person')).toBeNull();
+    });
+
+    it('still keeps the draft when the session ended (drafts not cleared)', async () => {
+      const pending = pendingSave();
+      await submit();
+
+      pending.error(new ApiError('auth.unauthenticated', 'ended', 401));
+      await fixture.whenStable();
+
+      expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
+    });
+
+    it('is cancelled when the form is destroyed: no draft, no saved event', async () => {
+      const pending = pendingSave();
+      await submit();
+
+      fixture.destroy();
+      expect(pending.observed).toBeFalse();
+      pending.error(new ApiError('network_error', 'down', 0));
+
+      expect(drafts.load('add-person')).toBeNull();
+      expect(saved).not.toHaveBeenCalled();
+    });
   });
 
   it('saves a draft on a server error too', async () => {

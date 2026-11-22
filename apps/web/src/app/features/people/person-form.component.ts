@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  DestroyRef,
   Injector,
   OnInit,
   inject,
@@ -19,6 +20,7 @@ import {
   ValidationErrors,
   Validators,
 } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -472,6 +474,7 @@ export class PersonFormComponent implements OnInit {
   private readonly injector = inject(Injector);
   private readonly drafts = inject(DraftStore);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly tagInputs = viewChildren(TagInputComponent);
   /** This submission's Idempotency-Key, from the first attempt until it succeeds. */
   private idempotencyKey: string | null = null;
@@ -616,21 +619,31 @@ export class PersonFormComponent implements OnInit {
     const value = this.currentValue();
     this.idempotencyKey ??= newIdempotencyKey();
     const key = this.idempotencyKey;
+    const generation = this.drafts.generation;
     this.busy.set(true);
     this.error.set(null);
-    this.submitter()(value, key).subscribe({
-      next: (result) => {
-        this.busy.set(false);
-        this.done.set(true);
-        this.idempotencyKey = null;
-        this.drafts.clear(this.draftKey());
-        this.saved.emit(result);
-      },
-      error: (failure: unknown) => this.onFailure(failure, value, key),
-    });
+    // Cancelled with the form: a save still pending when the page goes away must not write a
+    // draft or emit afterwards.
+    this.submitter()(value, key)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          this.busy.set(false);
+          this.done.set(true);
+          this.idempotencyKey = null;
+          this.drafts.clear(this.draftKey());
+          this.saved.emit(result);
+        },
+        error: (failure: unknown) => this.onFailure(failure, value, key, generation),
+      });
   }
 
-  private onFailure(failure: unknown, value: PersonFormValue, idempotencyKey: string): void {
+  private onFailure(
+    failure: unknown,
+    value: PersonFormValue,
+    idempotencyKey: string,
+    generation: number,
+  ): void {
     const apiError = toApiError(failure);
     this.busy.set(false);
     // Keep the entry for a network or server failure (nothing about the data was refused), and
@@ -639,7 +652,10 @@ export class PersonFormComponent implements OnInit {
     // saves a draft. The message is shown either way (it says why, until the page moves on).
     const sessionEnded = apiError.code === 'mfa_required' || apiError.status === 401;
     const message = personErrorMessage(apiError);
-    if (message.retryable || sessionEnded) this.saveDraft(value, idempotencyKey);
+    // An explicit sign-out while this save was pending cleared every draft (the next person at
+    // this browser must not find this one); a session that merely ended keeps them.
+    const clearedSince = this.drafts.generation !== generation;
+    if ((message.retryable || sessionEnded) && !clearedSince) this.saveDraft(value, idempotencyKey);
     this.error.set(message);
     this.cdr.markForCheck();
   }

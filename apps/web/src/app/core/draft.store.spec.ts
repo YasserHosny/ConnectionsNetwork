@@ -39,6 +39,15 @@ describe('DraftStore', () => {
     expect(localStorage.getItem('connections.locale')).toBe('en');
   });
 
+  it('counts explicit clear-alls, so a write started before one can tell it is stale', () => {
+    const store = new DraftStore();
+    const before = store.generation;
+
+    store.clearAll();
+
+    expect(store.generation).toBe(before + 1);
+  });
+
   it('returns null for a missing or corrupt draft', () => {
     expect(store.load('add-person')).toBeNull();
 

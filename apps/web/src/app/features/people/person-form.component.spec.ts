@@ -304,6 +304,42 @@ describe('PersonFormComponent', () => {
       expect(el().querySelector('.pending-tag')?.textContent).toContain('Python');
     });
 
+    it('is added on a retry too, with the same Idempotency-Key', async () => {
+      submitter.and.returnValue(throwError(() => new ApiError('network_error', 'down', 0)));
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      const key = submitter.calls.mostRecent().args[1];
+      openMore();
+      typeTag(1, 'Banking');
+
+      submitter.and.returnValue(of({ ok: true }));
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+
+      expect(submitter).toHaveBeenCalledTimes(2);
+      expect(submitter.calls.mostRecent().args[0].industries).toEqual(['Banking']);
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+    });
+
+    it('blocks a retry just like a save when a skill has no category', async () => {
+      submitter.and.returnValue(throwError(() => new ApiError('network_error', 'down', 0)));
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      openMore();
+      typeTag(0, 'Python');
+
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(submitter).toHaveBeenCalledTimes(1);
+      expect(el().querySelector('.pending-tag')?.textContent).toContain('Python');
+    });
+
     it('is added on save when the skill has its category', async () => {
       create();
       setText('nameLatin', 'Sara Ali');

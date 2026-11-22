@@ -40,6 +40,14 @@ class AuthenticationError(AppError):
     safe_message = "Authentication failed."
 
 
+class ServiceUnavailableError(AppError):
+    """A dependency is down (not the caller's fault); the client keeps its session and retries."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "auth.keys_unavailable"
+    safe_message = "Sign-in verification is temporarily unavailable. Try again shortly."
+
+
 class ForbiddenError(AppError):
     status_code = status.HTTP_403_FORBIDDEN
     code = "auth.forbidden"

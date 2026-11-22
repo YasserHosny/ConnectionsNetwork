@@ -23,7 +23,7 @@ from jose import jwt
 from jose.utils import base64url_encode
 
 from connections_api.config import Settings
-from connections_api.errors import AuthenticationError
+from connections_api.errors import AuthenticationError, ServiceUnavailableError
 from connections_api.modules.auth import jwks as jwks_module
 from connections_api.modules.auth.jwt import (
     ASYMMETRIC_ALGORITHMS,
@@ -289,3 +289,21 @@ def test_hs256_is_refused_when_no_secret_is_configured(monkeypatch: pytest.Monke
     with pytest.raises(AuthenticationError) as caught:
         verify_supabase_jwt(hs256_token(), Settings())
     assert caught.value.details["reason"] == "symmetric_key_not_configured"
+
+
+def test_an_unreachable_key_set_is_an_outage_not_a_credential_problem(
+    settings: Settings, ec_key: ec.EllipticCurvePrivateKey, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """503, not 401: the web app signs the admin out on a 401, and this is not their fault."""
+
+    def unavailable(self: jwks_module.JwksCache, kid: str) -> None:
+        raise jwks_module.JwksUnavailableError("down")
+
+    monkeypatch.setattr(jwks_module.JwksCache, "get_key", unavailable)
+
+    with pytest.raises(ServiceUnavailableError) as caught:
+        verify_supabase_jwt(es256_token(ec_key), settings)
+
+    assert not isinstance(caught.value, AuthenticationError)
+    assert caught.value.status_code == 503
+    assert caught.value.code == "auth.keys_unavailable"

@@ -597,8 +597,9 @@ export class PersonFormComponent implements OnInit {
     this.send();
   }
 
+  /** Same checks as a save (pending tags, validation); send() keeps the failed key. */
   protected retry(): void {
-    if (!this.busy() && !this.done()) this.send();
+    this.submit();
   }
 
   /** Adds typed-but-not-added tags; false (and the message) when one cannot be added. */

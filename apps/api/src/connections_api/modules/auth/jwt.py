@@ -8,7 +8,7 @@ from jose.exceptions import ExpiredSignatureError, JWTClaimsError, JWTError
 from pydantic import BaseModel, ValidationError
 
 from connections_api.config import Settings, get_settings
-from connections_api.errors import AuthenticationError
+from connections_api.errors import AuthenticationError, ServiceUnavailableError
 from connections_api.modules.auth.jwks import JwksUnavailableError, get_jwks_cache
 
 # Algorithms this service will verify, and nothing else.
@@ -75,8 +75,8 @@ def _resolve_key(token: str, settings: Settings) -> tuple[Any, list[str]]:
             key = get_jwks_cache(settings).get_key(kid)
         except JwksUnavailableError as exc:
             # The provider is unreachable and we hold no keys. This is an outage, not a bad
-            # token, and it must not be reported as a credential problem.
-            raise AuthenticationError(details={"reason": "keys_unavailable"}) from exc
+            # token: a 401 would make the web app end a valid session, so answer 503 instead.
+            raise ServiceUnavailableError(details={"reason": "keys_unavailable"}) from exc
         if key is None:
             raise AuthenticationError(details={"reason": "unknown_key_id"})
         return key, sorted(ASYMMETRIC_ALGORITHMS)

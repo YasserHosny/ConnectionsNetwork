@@ -9,7 +9,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import StringConstraints
 
-from connections_api.deps import AdminContext, admin_tx, current_admin
+from connections_api.deps import AdminContext, admin_snapshot_tx, current_admin
 from connections_api.modules.people.schemas import (
     AvailableFor,
     Seniority,
@@ -22,7 +22,8 @@ from connections_api.modules.search.schemas import AlternativePath, SearchResult
 router = APIRouter(tags=["search"])
 
 Admin = Annotated[AdminContext, Depends(current_admin)]
-Tx = Annotated[psycopg.Connection[Any], Depends(admin_tx)]
+# Reads see one snapshot (REPEATABLE READ): see deps.admin_snapshot_tx.
+ReadTx = Annotated[psycopg.Connection[Any], Depends(admin_snapshot_tx)]
 
 # Free text and labels, capped like the fields they are matched against (people/schemas.py).
 SearchText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)]
@@ -32,7 +33,7 @@ MAX_SKILL_FILTERS = 10
 @router.get("/search", response_model=list[SearchResult])
 def search(
     admin: Admin,
-    conn: Tx,
+    conn: ReadTx,
     q: Annotated[SearchText | None, Query()] = None,
     skill: Annotated[list[SearchText] | None, Query(max_length=MAX_SKILL_FILTERS)] = None,
     category: SkillCategory | None = None,
@@ -64,6 +65,6 @@ def search(
 
 @router.get("/people/{person_id}/paths", response_model=list[AlternativePath])
 def alternative_paths(
-    person_id: UUID, admin: Admin, conn: Tx, k: Annotated[int, Query(ge=1, le=10)] = 3
+    person_id: UUID, admin: Admin, conn: ReadTx, k: Annotated[int, Query(ge=1, le=10)] = 3
 ) -> list[AlternativePath]:
     return service.alternative_paths(conn, admin, person_id, k)

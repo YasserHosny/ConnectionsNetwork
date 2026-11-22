@@ -8,7 +8,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from connections_api.deps import AdminContext, admin_tx, current_admin
+from connections_api.deps import AdminContext, admin_snapshot_tx, admin_tx, current_admin
 from connections_api.modules.people import service
 from connections_api.modules.people.schemas import (
     ConnectionIn,
@@ -27,6 +27,8 @@ router = APIRouter(tags=["people"])
 
 Admin = Annotated[AdminContext, Depends(current_admin)]
 Tx = Annotated[psycopg.Connection[Any], Depends(admin_tx)]
+# Reads see one snapshot (REPEATABLE READ): see deps.admin_snapshot_tx.
+ReadTx = Annotated[psycopg.Connection[Any], Depends(admin_snapshot_tx)]
 
 
 @router.post("/people", response_model=CreatePersonResponse, status_code=status.HTTP_201_CREATED)
@@ -37,7 +39,7 @@ def create_person(
 
 
 @router.get("/people/{person_id}", response_model=PersonOut)
-def get_person(person_id: UUID, _admin: Admin, conn: Tx) -> PersonOut:
+def get_person(person_id: UUID, _admin: Admin, conn: ReadTx) -> PersonOut:
     return service.get_person_or_404(conn, person_id)
 
 
@@ -77,6 +79,6 @@ def delete_connection(connection_id: UUID, _admin: Admin, conn: Tx) -> Response:
 
 @router.get("/tags", response_model=list[TagOut])
 def search_tags(
-    kind: TagKind, _admin: Admin, conn: Tx, q: Annotated[str, Query(max_length=100)] = ""
+    kind: TagKind, _admin: Admin, conn: ReadTx, q: Annotated[str, Query(max_length=100)] = ""
 ) -> list[TagOut]:
     return service.search_tags(conn, kind, q)

@@ -660,3 +660,46 @@ def test_text_filters_are_bounded(client: TestClient) -> None:
     assert search(client, skill=["a"] * 11).status_code == 422
     assert search(client, q="a" * 201).status_code == 422
     assert search(client, city="a" * 201).status_code == 422
+
+
+# -- one snapshot per read -------------------------------------------------------------------------
+
+
+def test_search_survives_a_person_deleted_between_graph_and_names(
+    client: TestClient,
+    conn: psycopg.Connection[Any],
+    network: NetworkFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The graph and the path's names come from one snapshot, so a concurrent delete can't 500.
+
+    `ahmed` is the bridge on the path to the marketer. He is deleted by another session after
+    the graph has been loaded but before the path's names are read.
+    """
+    from connections_api.modules.search import service as search_service
+
+    owner = network.admin_person_id
+    ahmed = add_person(conn, network, "Ahmed")
+    marketer = add_person(conn, network, "Marketer", skills=[("Marketing", "business", None)])
+    link(conn, network, owner, ahmed, "strong")
+    link(conn, network, ahmed, marketer, "strong")
+
+    real_names = search_service._names
+
+    def names_after_a_concurrent_delete(
+        tx_conn: psycopg.Connection[Any], person_ids: set[UUID]
+    ) -> dict[UUID, str]:
+        conn.execute("delete from person where id = %s", (ahmed,))
+        return real_names(tx_conn, person_ids)
+
+    monkeypatch.setattr(search_service, "_names", names_after_a_concurrent_delete)
+
+    response = client.get("/api/v1/search", params={"skill": "marketing"})
+
+    assert response.status_code == 200, response.text
+    [result] = response.json()
+    assert [node["display_name"] for node in result["path"]] == [
+        "Network Admin",
+        "Ahmed",
+        "Marketer",
+    ]

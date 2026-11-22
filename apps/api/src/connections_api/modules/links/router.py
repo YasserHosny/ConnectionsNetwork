@@ -18,7 +18,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Header, Query, Request, status
 
 from connections_api.config import Settings, get_settings
-from connections_api.deps import AdminContext, admin_tx, current_admin
+from connections_api.deps import AdminContext, admin_snapshot_tx, admin_tx, current_admin
 from connections_api.modules.links import service
 from connections_api.modules.links.schemas import (
     ContributeRequest,
@@ -37,6 +37,8 @@ router = APIRouter(tags=["links"])
 
 Admin = Annotated[AdminContext, Depends(current_admin)]
 Tx = Annotated[psycopg.Connection[Any], Depends(admin_tx)]
+# Reads see one snapshot (REPEATABLE READ): see deps.admin_snapshot_tx.
+ReadTx = Annotated[psycopg.Connection[Any], Depends(admin_snapshot_tx)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
 ContributorToken = Annotated[str | None, Header(alias=CONTRIBUTOR_TOKEN_HEADER)]
 
@@ -52,7 +54,7 @@ def create_link(
 
 
 @router.get("/links", response_model=list[LinkOut])
-def list_links(_admin: Admin, conn: Tx) -> list[LinkOut]:
+def list_links(_admin: Admin, conn: ReadTx) -> list[LinkOut]:
     return service.list_links(conn)
 
 

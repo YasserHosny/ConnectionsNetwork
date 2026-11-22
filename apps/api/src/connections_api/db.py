@@ -26,7 +26,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import psycopg
-from psycopg import sql
+from psycopg import IsolationLevel, sql
 
 
 def connect(dsn: str | None = None, **kwargs: object) -> psycopg.Connection[Any]:
@@ -44,7 +44,12 @@ def connect(dsn: str | None = None, **kwargs: object) -> psycopg.Connection[Any]
 
 
 @contextmanager
-def user_tx(claims: Mapping[str, str], dsn: str | None = None) -> Iterator[psycopg.Connection[Any]]:
+def user_tx(
+    claims: Mapping[str, str],
+    dsn: str | None = None,
+    *,
+    isolation: IsolationLevel | None = None,
+) -> Iterator[psycopg.Connection[Any]]:
     """A transaction that runs as the request's user, under row-level security.
 
     ``set local role`` switches to ``authenticated``, or to ``anon`` when there are no claims,
@@ -53,9 +58,11 @@ def user_tx(claims: Mapping[str, str], dsn: str | None = None) -> Iterator[psyco
     the next user of a pooled backend. Commits when the block exits normally, rolls back when it
     raises.
 
-    dsn defaults to the configured DATABASE_URL (tests pass TEST_DATABASE_URL).
+    dsn defaults to the configured DATABASE_URL (tests pass TEST_DATABASE_URL). isolation sets
+    the transaction's isolation level (default: the server's, READ COMMITTED); a multi-statement
+    read that must see one coherent state passes REPEATABLE_READ.
     """
-    with _role_tx("authenticated" if claims else "anon", claims, dsn) as conn:
+    with _role_tx("authenticated" if claims else "anon", claims, dsn, isolation) as conn:
         yield conn
 
 
@@ -67,17 +74,21 @@ def contributor_tx(dsn: str | None = None) -> Iterator[psycopg.Connection[Any]]:
     (20261119000008) and that holds nothing else. Not ``anon``: PostgREST serves ``anon`` to
     anyone holding the public anon key, and a direct RPC call would skip the API's rate limits.
     """
-    with _role_tx("contributor_api", {}, dsn) as conn:
+    with _role_tx("contributor_api", {}, dsn, None) as conn:
         yield conn
 
 
 @contextmanager
 def _role_tx(
-    role: str, claims: Mapping[str, str], dsn: str | None
+    role: str, claims: Mapping[str, str], dsn: str | None, isolation: IsolationLevel | None
 ) -> Iterator[psycopg.Connection[Any]]:
-    with connect(dsn) as conn, conn.transaction():
-        conn.execute(sql.SQL("set local role {}").format(sql.Identifier(role)))
-        conn.execute(
-            "select set_config('request.jwt.claims', %s, true)", (json.dumps(dict(claims)),)
-        )
-        yield conn
+    with connect(dsn) as conn:
+        if isolation is not None:
+            # Must be set before the transaction's first statement takes its snapshot.
+            conn.isolation_level = isolation
+        with conn.transaction():
+            conn.execute(sql.SQL("set local role {}").format(sql.Identifier(role)))
+            conn.execute(
+                "select set_config('request.jwt.claims', %s, true)", (json.dumps(dict(claims)),)
+            )
+            yield conn

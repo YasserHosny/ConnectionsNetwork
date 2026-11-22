@@ -59,7 +59,15 @@ class JwksCache:
         """
         with self._lock:
             if self._is_stale():
-                self._refresh_locked()
+                if self._may_retry():
+                    self._refresh_locked()
+                elif not self._keys:
+                    # The last attempt failed moments ago and there is nothing cached to serve.
+                    # Fail fast rather than make every request wait out another fetch.
+                    raise JwksUnavailableError("key set unavailable; retrying shortly")
+                # Otherwise keep serving the stale set until the retry interval has passed: a
+                # failed refresh leaves the cache stale, and refetching on every request would
+                # queue them all behind the lock during an identity-provider outage.
 
             key = self._keys.get(kid)
             if key is not None:

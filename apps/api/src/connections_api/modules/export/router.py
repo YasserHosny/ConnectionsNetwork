@@ -7,14 +7,14 @@ from typing import Annotated, Any
 import psycopg
 from fastapi import APIRouter, Depends, Query, Response
 
-from connections_api.deps import AdminContext, admin_tx, current_admin
+from connections_api.deps import AdminContext, admin_snapshot_tx, current_admin
 from connections_api.modules.export import service
 from connections_api.modules.export.service import ExportFormat
 
 router = APIRouter(tags=["export"])
 
 Admin = Annotated[AdminContext, Depends(current_admin)]
-Tx = Annotated[psycopg.Connection[Any], Depends(admin_tx)]
+Tx = Annotated[psycopg.Connection[Any], Depends(admin_snapshot_tx)]
 
 _MEDIA_TYPES = {ExportFormat.JSON: "application/json", ExportFormat.CSV: "application/zip"}
 

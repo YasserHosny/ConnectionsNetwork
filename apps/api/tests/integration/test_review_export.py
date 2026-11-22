@@ -33,6 +33,7 @@ from integration.helpers import (
 
 from connections_api import db
 from connections_api.main import create_app
+from connections_api.modules.export import service
 
 DSN = os.environ.get("TEST_DATABASE_URL", "")
 
@@ -438,6 +439,43 @@ def test_export_defaults_to_json(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert "tables" in response.json()
+
+
+def test_export_reads_every_table_from_one_snapshot(
+    client: TestClient,
+    conn: psycopg.Connection[Any],
+    network: NetworkFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A person committed while the export runs is either wholly in it or wholly absent.
+
+    The export reads `person` before `contact_value`. A contributor submission that commits
+    between those two reads must not leave a contact value whose person is missing.
+    """
+    real_columns = service._columns
+    late: dict[str, UUID] = {}
+
+    def columns_then_commit_a_person(tx_conn: psycopg.Connection[Any], table: str) -> list[str]:
+        if table == "contact_value" and not late:
+            # `person` has been read; a separate session commits a new person + contact now.
+            late["id"] = person(conn, network, "Late Arrival")
+            conn.execute(
+                "insert into contact_value (network_id, person_id, kind, value)"
+                " values (%s, %s, 'phone', '01099998888')",
+                (network.network_id, late["id"]),
+            )
+        return real_columns(tx_conn, table)
+
+    monkeypatch.setattr(service, "_columns", columns_then_commit_a_person)
+
+    response = client.get("/api/v1/export", params={"format": "json"})
+
+    assert response.status_code == 200, response.text
+    assert late, "the concurrent commit did not happen"
+    tables = response.json()["tables"]
+    people = {p["id"] for p in tables["person"]}
+    assert {c["person_id"] for c in tables["contact_value"]} <= people
+    assert str(late["id"]) not in people  # the snapshot predates the late commit
 
 
 def test_export_does_not_log_row_contents(

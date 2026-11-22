@@ -15,6 +15,7 @@ from uuid import UUID
 import psycopg
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from psycopg import IsolationLevel
 
 from connections_api.config import Settings, get_settings
 from connections_api.db import user_tx
@@ -77,4 +78,17 @@ def admin_tx(
 ) -> Iterator[psycopg.Connection[Any]]:
     """A transaction as the admin, under RLS. Commits on success, rolls back on an error."""
     with user_tx(ctx.claims) as conn:
+        yield conn
+
+
+def admin_snapshot_tx(
+    ctx: Annotated[AdminContext, Depends(current_admin)],
+) -> Iterator[psycopg.Connection[Any]]:
+    """Like admin_tx, but every statement reads from one REPEATABLE READ snapshot.
+
+    For multi-table reads that must be internally consistent (the export): under the default
+    READ COMMITTED each statement sees whatever committed before it, so a submission landing
+    mid-read could leave a contact value without its person.
+    """
+    with user_tx(ctx.claims, isolation=IsolationLevel.REPEATABLE_READ) as conn:
         yield conn

@@ -455,6 +455,26 @@ describe('ContributePage', () => {
     await settle();
   });
 
+  it('locks the form after a failed save; Retry resends the same body with the same key', async () => {
+    await open();
+
+    await fillAndSubmit('Sara Ali', 'weak');
+    const first = postRequest();
+    const body = first.request.body;
+    const key = first.request.headers.get('Idempotency-Key');
+    first.error(new ProgressEvent('error'));
+    await settle();
+
+    expect(field('nameLatin').disabled).toBeTrue();
+    expect(el().querySelector('.locked-note')).not.toBeNull();
+    (el().querySelector('button.retry') as HTMLButtonElement).click();
+    const retry = postRequest();
+    expect(retry.request.body).toEqual(body);
+    expect(retry.request.headers.get('Idempotency-Key')).toBe(key);
+    retry.flush({ person_id: 'p-new' }, { status: 201, statusText: 'Created' });
+    await settle();
+  });
+
   it('too many requests says to wait a minute and keeps no draft', async () => {
     await open();
 

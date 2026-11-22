@@ -47,7 +47,7 @@ interface Outcome {
       <p class="selected">
         @if (value(); as target) {
           <span>{{ target.name }}</span>
-          <button mat-button type="button" class="reset" (click)="reset()">
+          <button mat-button type="button" class="reset" [disabled]="disabled()" (click)="reset()">
             {{ resetKey() | translate }}
           </button>
         } @else {
@@ -57,7 +57,14 @@ interface Outcome {
 
       <mat-form-field appearance="outline" subscriptSizing="dynamic">
         <mat-label>{{ 'person.connectTo.search' | translate }}</mat-label>
-        <input matInput type="search" autocomplete="off" [value]="query()" (input)="onInput($event)" />
+        <input
+          matInput
+          type="search"
+          autocomplete="off"
+          [disabled]="disabled()"
+          [value]="query()"
+          (input)="onInput($event)"
+        />
       </mat-form-field>
 
       @if (contactHint()) {
@@ -68,7 +75,7 @@ interface Outcome {
         <ul class="results">
           @for (result of results(); track result.person_id) {
             <li>
-              <button type="button" (click)="pick(result)">
+              <button type="button" [disabled]="disabled()" (click)="pick(result)">
                 <span>{{ result.display_name }}</span>
                 @if (detail(result); as text) {
                   <small>{{ text }}</small>
@@ -145,6 +152,8 @@ export class PersonPickerComponent {
   readonly legendKey = input('person.connectTo.label');
   readonly emptyKey = input('person.connectTo.me');
   readonly resetKey = input('person.connectTo.reset');
+  /** Read-only: shows who is chosen; nothing can be searched, picked or reset. */
+  readonly disabled = input(false);
 
   protected readonly query = signal('');
   protected readonly results = signal<SearchResult[]>([]);
@@ -189,11 +198,13 @@ export class PersonPickerComponent {
   }
 
   protected pick(result: SearchResult): void {
+    if (this.disabled()) return;
     this.value.set({ id: result.person_id, name: result.display_name });
     this.clearSearch();
   }
 
   protected reset(): void {
+    if (this.disabled()) return;
     this.value.set(null);
     this.clearSearch();
   }

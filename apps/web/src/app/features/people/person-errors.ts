@@ -73,6 +73,9 @@ function message(key: string, retryable = false): PersonErrorMessage {
 export function personErrorMessage(error: ApiError): PersonErrorMessage {
   if (isRetryable(error)) return message('person.errors.savedOnDevice', true);
   switch (error.code) {
+    // The key's first request created someone and this one differs: only Start over helps.
+    case 'idempotency_key_reused':
+      return message('person.errors.idempotencyKeyReused');
     case 'validation.invalid_request':
     case 'validation.invalid_value':
       return validationMessage(error);

@@ -18,6 +18,16 @@ describe('personErrorMessage', () => {
     });
   });
 
+  it('says to start over when the key was already used with other details, never the API text', () => {
+    const error = new ApiError('idempotency_key_reused', 'This Idempotency-Key was already used.', 422);
+
+    expect(personErrorMessage(error)).toEqual({
+      key: 'person.errors.idempotencyKeyReused',
+      fieldKey: null,
+      retryable: false,
+    });
+  });
+
   it('maps a missing name from the request validation details', () => {
     const error = new ApiError('validation.invalid_request', 'x', 422, [
       { loc: ['body', 'person'], type: 'value_error', field: 'person', msg: 'Value error, name_ar or name_latin is required' },

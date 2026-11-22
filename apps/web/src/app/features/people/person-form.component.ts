@@ -25,6 +25,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatDialog } from '@angular/material/dialog';
 import { MatInputModule } from '@angular/material/input';
 import { MatRadioModule } from '@angular/material/radio';
 import { TranslatePipe } from '@ngx-translate/core';
@@ -44,6 +45,7 @@ import { IsolatePipe } from '../../core/bidi';
 import { isContactPickerSupported, pickContact } from '../../core/contact-picker';
 import { DraftStore } from '../../core/draft.store';
 import { IDEMPOTENCY_KEY_PATTERN, newIdempotencyKey } from '../../core/idempotency';
+import { ConfirmDialog, type ConfirmDialogData } from '../../layout/confirm.dialog';
 import { type PersonErrorMessage, personErrorMessage } from './person-errors';
 import {
   AVAILABLE_FOR_OPTIONS,
@@ -69,7 +71,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** What a draft stores besides the form value. */
 interface DraftMeta {
-  /** The Idempotency-Key of the submission that failed, so its retry is the same submission. */
+  /**
+   * The Idempotency-Key of the submission that failed, so its retry is the same submission. A
+   * create's draft with a key is that exact submission: it is restored locked.
+   */
   idempotencyKey?: string;
   /** Whose draft it is (the contributor link's token digest), when the form is given a `draftOwner`. */
   draftOwner?: string;
@@ -89,12 +94,20 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
  * reports what that returns through `saved`.
  *
  * Drafts (online-only app): nothing is stored while typing. When `submitter` fails with a network
- * or server error the value is kept on this device under `draftKey` and a retry is offered; a
- * draft found on open is restored; a successful save clears it. A draft given a `draftOwner` is
- * restored only for that owner, and one older than `draftMaxAgeDays` is dropped.
+ * or server error, or because the session ended (401, `mfa_required`), the value is kept on this
+ * device under `draftKey` and a retry is offered; a draft found on open is restored; a successful
+ * save clears it. A draft given a `draftOwner` is restored only for that owner, and one older than
+ * `draftMaxAgeDays` is dropped.
  *
  * Every submission carries an Idempotency-Key (the submitter's second argument): the same key on
  * a retry, and in the draft, so resubmitting after a lost answer never creates the person twice.
+ *
+ * A create that failed that way may still have been saved (only its answer was lost), and the
+ * server answers a reused key with the person it created, never with edits made since. So the form
+ * is then locked: every field is read-only, Retry resends exactly the payload that failed with its
+ * key, and "Start over" (after a confirmation) drops the draft and the key and makes the same
+ * values editable again under a new key. A create's draft that carries a key is restored locked.
+ * An edit (a PUT, which needs no key) is never locked.
  *
  * Text typed into a skill or industry field but not added yet is added on save when it needs
  * nothing more; a skill still missing its category stops the save and says so.
@@ -120,14 +133,22 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
       @if (draftRestored()) {
         <div class="draft-note" role="status">
           <span>{{ 'person.form.draftRestored' | translate }}</span>
-          <button mat-button type="button" class="discard" (click)="discardDraft()">
-            {{ 'person.form.discardDraft' | translate }}
-          </button>
+          @if (!locked()) {
+            <button mat-button type="button" class="discard" (click)="discardDraft()">
+              {{ 'person.form.discardDraft' | translate }}
+            </button>
+          }
         </div>
       }
 
       @if (pickerSupported) {
-        <button mat-stroked-button type="button" class="pick-contact" (click)="pickFromContacts()">
+        <button
+          mat-stroked-button
+          type="button"
+          class="pick-contact"
+          [disabled]="locked()"
+          (click)="pickFromContacts()"
+        >
           <mat-icon aria-hidden="true">contacts</mat-icon>
           {{ 'person.form.pickFromContacts' | translate }}
         </button>
@@ -170,6 +191,7 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
         @if (!contributor()) {
           <app-person-picker
             [value]="form.controls.connectTo.value"
+            [disabled]="locked()"
             (valueChange)="form.controls.connectTo.setValue($event)"
           />
         }
@@ -214,6 +236,7 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
             @for (option of availableFor; track option.value) {
               <mat-checkbox
                 [checked]="form.controls.availableFor.value.includes(option.value)"
+                [disabled]="locked()"
                 (change)="toggleAvailableFor(option.value, $event.checked)"
               >
                 {{ option.labelKey | translate }}
@@ -234,6 +257,7 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
             kind="skill"
             labelKey="person.form.skills"
             [suggest]="suggest"
+            [disabled]="locked()"
             [value]="form.controls.skills.value"
             (valueChange)="form.controls.skills.setValue($event)"
           />
@@ -241,6 +265,7 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
             kind="industry"
             labelKey="person.form.industries"
             [suggest]="suggest"
+            [disabled]="locked()"
             [value]="form.controls.industries.value"
             (valueChange)="form.controls.industries.setValue($event)"
           />
@@ -265,13 +290,14 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
                   mat-icon-button
                   type="button"
                   [attr.aria-label]="'person.form.removeRow' | translate"
+                  [disabled]="locked()"
                   (click)="socialLinks.removeAt(i)"
                 >
                   <mat-icon aria-hidden="true">delete</mat-icon>
                 </button>
               </div>
             }
-            <button mat-stroked-button type="button" class="add-row" (click)="addSocialLink()">
+            <button mat-stroked-button type="button" class="add-row" [disabled]="locked()" (click)="addSocialLink()">
               {{ 'person.form.addSocialLink' | translate }}
             </button>
           </fieldset>
@@ -296,13 +322,14 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
                   mat-icon-button
                   type="button"
                   [attr.aria-label]="'person.form.removeRow' | translate"
+                  [disabled]="locked()"
                   (click)="contacts.removeAt(i)"
                 >
                   <mat-icon aria-hidden="true">delete</mat-icon>
                 </button>
               </div>
             }
-            <button mat-stroked-button type="button" class="add-row" (click)="addContact()">
+            <button mat-stroked-button type="button" class="add-row" [disabled]="locked()" (click)="addContact()">
               {{ 'person.form.addContact' | translate }}
             </button>
           </fieldset>
@@ -326,7 +353,7 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
       @if (error(); as failure) {
         <div class="error" role="alert">
           <p>{{ failure.key | translate: { field: failure.fieldKey ? (failure.fieldKey | translate) : '' } }}</p>
-          @if (failure.retryable) {
+          @if (failure.retryable && !locked()) {
             <button mat-stroked-button type="button" class="retry" [disabled]="busy()" (click)="retry()">
               {{ 'common.retry' | translate }}
             </button>
@@ -334,7 +361,21 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
         </div>
       }
 
-      <button mat-flat-button type="submit" class="save" [disabled]="busy() || done()">
+      @if (locked()) {
+        <div class="locked-note" role="status">
+          <p>{{ 'person.form.locked' | translate }}</p>
+          <div class="locked-actions">
+            <button mat-stroked-button type="button" class="retry" [disabled]="busy()" (click)="retry()">
+              {{ 'common.retry' | translate }}
+            </button>
+            <button mat-button type="button" class="start-over" [disabled]="busy()" (click)="startOver()">
+              {{ 'person.form.startOver' | translate }}
+            </button>
+          </div>
+        </div>
+      }
+
+      <button mat-flat-button type="submit" class="save" [disabled]="busy() || done() || locked()">
         {{ (busy() ? 'person.form.saving' : 'person.form.save') | translate }}
       </button>
     </form>
@@ -392,6 +433,21 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
       border-radius: 8px;
       background: var(--mat-sys-secondary-container);
       color: var(--mat-sys-on-secondary-container);
+    }
+    .locked-note {
+      padding-block: 8px;
+      padding-inline: 12px;
+      border-radius: 8px;
+      background: var(--mat-sys-secondary-container);
+      color: var(--mat-sys-on-secondary-container);
+    }
+    .locked-note p {
+      margin-block: 0 8px;
+    }
+    .locked-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
     .more {
       border: 1px solid var(--mat-sys-outline-variant);
@@ -475,9 +531,12 @@ export class PersonFormComponent implements OnInit {
   private readonly drafts = inject(DraftStore);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly dialog = inject(MatDialog);
   private readonly tagInputs = viewChildren(TagInputComponent);
   /** This submission's Idempotency-Key, from the first attempt until it succeeds. */
   private idempotencyKey: string | null = null;
+  /** The create that failed, exactly as it was sent: what Retry resends while `locked`. */
+  private failedCreate: { value: PersonFormValue; idempotencyKey: string } | null = null;
 
   protected readonly strengths = STRENGTH_OPTIONS;
   protected readonly seniorities = SENIORITY_OPTIONS;
@@ -518,6 +577,8 @@ export class PersonFormComponent implements OnInit {
   protected readonly done = signal(false);
   /** Text in a tag field that could not be added on save. */
   protected readonly pendingTag = signal<string | null>(null);
+  /** A create that may have been saved already: read-only until Retry succeeds or Start over. */
+  protected readonly locked = signal(false);
 
   protected get socialLinks() {
     return this.form.controls.socialLinks;
@@ -544,8 +605,9 @@ export class PersonFormComponent implements OnInit {
     }
     const draft = this.loadDraft();
     if (draft) {
-      this.apply(draft);
+      this.apply(draft.value);
       this.draftRestored.set(true);
+      if (this.mode() === 'add' && draft.idempotencyKey) this.lock(draft.value, draft.idempotencyKey);
     } else {
       this.apply(this.startingValue());
     }
@@ -557,22 +619,26 @@ export class PersonFormComponent implements OnInit {
   }
 
   protected toggleAvailableFor(option: AvailableFor, checked: boolean): void {
+    if (this.locked()) return;
     const control = this.form.controls.availableFor;
     const rest = control.value.filter((v) => v !== option);
     control.setValue(checked ? [...rest, option] : rest);
   }
 
   protected addSocialLink(kind: SocialLinkKind = 'facebook', url = ''): void {
+    if (this.locked()) return;
     this.socialLinks.push(this.fb.group({ kind: this.fb.control(kind), url: this.fb.control(url) }));
   }
 
   protected addContact(kind: ContactKind = 'phone', value = ''): void {
+    if (this.locked()) return;
     this.contacts.push(this.fb.group({ kind: this.fb.control(kind), value: this.fb.control(value) }));
   }
 
   protected async pickFromContacts(): Promise<void> {
+    if (this.locked()) return;
     const picked = await pickContact();
-    if (!picked) return;
+    if (!picked || this.locked()) return;
     const { nameAr, nameLatin } = this.form.controls;
     if (picked.name && !hasName({ nameAr: nameAr.value, nameLatin: nameLatin.value })) {
       (ARABIC_SCRIPT.test(picked.name) ? nameAr : nameLatin).setValue(picked.name);
@@ -594,15 +660,58 @@ export class PersonFormComponent implements OnInit {
 
   protected submit(): void {
     if (this.busy() || this.done()) return;
+    // Save is disabled while locked; a submit that still arrives (Enter) is the retry.
+    if (this.locked()) {
+      this.retry();
+      return;
+    }
     this.submitAttempted.set(true);
     if (!this.commitPendingTags()) return;
     if (this.form.invalid) return;
-    this.send();
+    this.idempotencyKey ??= newIdempotencyKey();
+    this.send(this.currentValue(), this.idempotencyKey);
   }
 
-  /** Same checks as a save (pending tags, validation); send() keeps the failed key. */
+  /**
+   * A locked create: resend the payload that failed, with its key, exactly as it was (the fields
+   * are read-only, so there is nothing new to check or add). An edit: save the form again.
+   */
   protected retry(): void {
-    this.submit();
+    const failed = this.failedCreate;
+    if (!failed) {
+      this.submit();
+      return;
+    }
+    if (this.busy() || this.done()) return;
+    this.send(failed.value, failed.idempotencyKey);
+  }
+
+  /**
+   * After a confirmation: forget the locked submission (its draft and key) and make the same values
+   * editable again; the next save is a new submission with a new key. If the first attempt did
+   * reach the server, that save adds the person a second time, which the dialog says.
+   */
+  protected startOver(): void {
+    const data: ConfirmDialogData = {
+      titleKey: 'person.form.startOverDialog.title',
+      bodyKey: 'person.form.startOverDialog.body',
+      confirmKey: 'person.form.startOverDialog.confirm',
+    };
+    this.dialog
+      .open(ConfirmDialog, { data })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed: boolean | undefined) => {
+        const failed = this.failedCreate;
+        if (confirmed !== true || !failed || this.busy()) return;
+        this.drafts.clear(this.draftKey());
+        this.idempotencyKey = null;
+        this.apply(failed.value);
+        this.unlock();
+        this.draftRestored.set(false);
+        this.error.set(null);
+        this.cdr.markForCheck();
+      });
   }
 
   /** Adds typed-but-not-added tags; false (and the message) when one cannot be added. */
@@ -615,10 +724,7 @@ export class PersonFormComponent implements OnInit {
     return !blocked;
   }
 
-  private send(): void {
-    const value = this.currentValue();
-    this.idempotencyKey ??= newIdempotencyKey();
-    const key = this.idempotencyKey;
+  private send(value: PersonFormValue, key: string): void {
     const generation = this.drafts.generation;
     this.busy.set(true);
     this.error.set(null);
@@ -631,11 +737,25 @@ export class PersonFormComponent implements OnInit {
           this.busy.set(false);
           this.done.set(true);
           this.idempotencyKey = null;
+          this.unlock();
           this.drafts.clear(this.draftKey());
           this.saved.emit(result);
         },
         error: (failure: unknown) => this.onFailure(failure, value, key, generation),
       });
+  }
+
+  /** Read-only, with `value` and its key kept for Retry. */
+  private lock(value: PersonFormValue, idempotencyKey: string): void {
+    this.failedCreate = { value, idempotencyKey };
+    this.locked.set(true);
+    this.form.disable({ emitEvent: false });
+  }
+
+  private unlock(): void {
+    this.failedCreate = null;
+    this.locked.set(false);
+    this.form.enable({ emitEvent: false });
   }
 
   private onFailure(
@@ -655,7 +775,11 @@ export class PersonFormComponent implements OnInit {
     // An explicit sign-out while this save was pending cleared every draft (the next person at
     // this browser must not find this one); a session that merely ended keeps them.
     const clearedSince = this.drafts.generation !== generation;
-    if ((message.retryable || sessionEnded) && !clearedSince) this.saveDraft(value, idempotencyKey);
+    const maybeSaved = message.retryable || sessionEnded;
+    if (maybeSaved && !clearedSince) this.saveDraft(value, idempotencyKey);
+    // A create that may have gone through is locked to what was sent (once locked, it stays so
+    // until it succeeds or the user starts over, whatever a later attempt answers).
+    if (maybeSaved && this.mode() === 'add' && !this.locked()) this.lock(value, idempotencyKey);
     this.error.set(message);
     this.cdr.markForCheck();
   }
@@ -667,8 +791,11 @@ export class PersonFormComponent implements OnInit {
     this.drafts.save(this.draftKey(), { ...value, ...meta });
   }
 
-  /** The stored draft, when there is one for this owner and it is not too old; else null. */
-  private loadDraft(): PersonFormValue | null {
+  /**
+   * The stored draft and the key it was sent with, when there is one for this owner and it is not
+   * too old; else null.
+   */
+  private loadDraft(): { value: PersonFormValue; idempotencyKey: string | null } | null {
     const raw = this.drafts.load<unknown>(this.draftKey());
     const value = parseFormValue(raw);
     if (!value) return null;
@@ -684,7 +811,7 @@ export class PersonFormComponent implements OnInit {
     }
     const key = meta.idempotencyKey;
     this.idempotencyKey = typeof key === 'string' && IDEMPOTENCY_KEY_PATTERN.test(key) ? key : null;
-    return value;
+    return { value, idempotencyKey: this.idempotencyKey };
   }
 
   private addContactOnce(kind: ContactKind, value: string): void {

@@ -46,6 +46,13 @@
       "pickFromContacts": "Pick from contacts",
       "draftRestored": "Restored your unsaved entry from this device.",
       "discardDraft": "Discard it",
+      "locked": "This entry is locked until it is saved, so a retry sends exactly what was sent before. To change it, start over.",
+      "startOver": "Start over",
+      "startOverDialog": {
+        "title": "Start over?",
+        "body": "The copy of this entry kept on this device is discarded, and you can edit it again. If the earlier save did reach the server, saving again adds this person a second time.",
+        "confirm": "Start over"
+      },
       "headline": "Headline or job title",
       "organization": "Organization",
       "profession": "Profession",
@@ -203,7 +210,8 @@
       "cannotDeleteSelf": "You cannot delete your own profile.",
       "cannotDropAccount": "This record belongs to a sign-in account, so it cannot be merged away. Keep it instead.",
       "linkRevoked": "This link was revoked, so it cannot be renewed. Create a new link instead.",
-      "tooManyRequests": "Too many tries. Wait a minute, then try again."
+      "tooManyRequests": "Too many tries. Wait a minute, then try again.",
+      "idempotencyKeyReused": "This save was already received with different details. Use Start over to enter it again."
     }
   },
   "search": {

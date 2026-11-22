@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { FormGroup } from '@angular/forms';
 import { provideRouter } from '@angular/router';
 import { provideTranslateService } from '@ngx-translate/core';
 import { Observable, Subject, of, throwError } from 'rxjs';
@@ -297,6 +298,194 @@ describe('PersonFormComponent', () => {
     });
   });
 
+  describe('a create that failed is locked until it goes through', () => {
+    const networkDown = () => throwError(() => new ApiError('network_error', 'down', 0));
+    const formOf = () => (fixture.componentInstance as unknown as { form: FormGroup }).form;
+    const dialog = () => document.querySelector('mat-dialog-container');
+
+    async function until<T>(condition: () => T): Promise<NonNullable<T>> {
+      let value = condition();
+      for (let i = 0; i < 100 && !value; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        fixture.detectChanges();
+        value = condition();
+      }
+      expect(value).toBeTruthy();
+      return value as NonNullable<T>;
+    }
+
+    async function failCreate(failure = networkDown()): Promise<string> {
+      submitter.and.returnValue(failure);
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      return submitter.calls.mostRecent().args[1];
+    }
+
+    function lockedControls(): (HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement)[] {
+      return Array.from(el().querySelectorAll<HTMLInputElement>('form input, form select, form textarea')).concat(
+        Array.from(el().querySelectorAll<HTMLInputElement>('button.add-row, app-tag-input button')),
+      );
+    }
+
+    async function startOver(answer: 'confirm' | 'cancel'): Promise<void> {
+      (el().querySelector('button.start-over') as HTMLButtonElement).click();
+      await until(dialog);
+      (document.querySelector(`.dialog-${answer}`) as HTMLButtonElement).click();
+      await until(() => !dialog());
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    it('disables every input after a network failure and says why', async () => {
+      await failCreate();
+
+      const controls = lockedControls();
+      expect(controls.length).toBeGreaterThan(5);
+      expect(controls.filter((c) => !c.disabled)).toEqual([]);
+      expect((el().querySelector('button.save') as HTMLButtonElement).disabled).toBeTrue();
+      expect(el().querySelector('.locked-note')?.textContent).toContain('locked until it is saved');
+      expect(el().querySelector('button.retry')).not.toBeNull();
+      expect(el().querySelector('button.start-over')).not.toBeNull();
+    });
+
+    it('locks the form when the session ended too (the draft is kept, R14)', async () => {
+      await failCreate(throwError(() => new ApiError('auth.unauthenticated', 'ended', 401)));
+
+      expect(field('nameLatin').disabled).toBeTrue();
+      expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
+      expect(el().querySelector('button.retry')).not.toBeNull();
+    });
+
+    it('Retry resends the payload that failed, with its key, whatever a control was set to since', async () => {
+      const key = await failCreate();
+      const sent = submitter.calls.mostRecent().args[0];
+
+      formOf().get('nameLatin')?.setValue('Changed behind the lock');
+      formOf().get('strength')?.setValue('strong');
+      submitter.and.returnValue(of({ ok: true }));
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+
+      expect(submitter).toHaveBeenCalledTimes(2);
+      expect(submitter.calls.mostRecent().args[0]).toEqual(sent);
+      expect(submitter.calls.mostRecent().args[0].nameLatin).toBe('Sara Ali');
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+      expect(saved).toHaveBeenCalledTimes(1);
+      expect(drafts.load('add-person')).toBeNull();
+    });
+
+    it('a restored draft that carries a key comes back locked, and Retry sends it with that key', async () => {
+      const key = await failCreate();
+      fixture.destroy();
+
+      submitter.and.returnValue(of({ ok: true }));
+      create();
+
+      expect(field('nameLatin').value).toBe('Sara Ali');
+      expect(field('nameLatin').disabled).toBeTrue();
+      expect(el().querySelector('.locked-note')).not.toBeNull();
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+
+      expect(submitter.calls.mostRecent().args[0].nameLatin).toBe('Sara Ali');
+      expect(submitter.calls.mostRecent().args[0].strength).toBe('weak');
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+    });
+
+    it('a restored draft without a key is not locked', () => {
+      drafts.save('add-person', { nameLatin: 'Sara Ali', strength: 'weak' });
+
+      create();
+
+      expect(field('nameLatin').disabled).toBeFalse();
+      expect(el().querySelector('.locked-note')).toBeNull();
+    });
+
+    it('Start over, once confirmed, keeps the typed values editable and sends a new key', async () => {
+      const key = await failCreate();
+
+      await startOver('confirm');
+
+      expect(field('nameLatin').disabled).toBeFalse();
+      expect(field('nameLatin').value).toBe('Sara Ali');
+      expect(el().querySelector('.locked-note')).toBeNull();
+      expect(drafts.load('add-person')).toBeNull();
+
+      setText('nameLatin', 'Sara Ali Hassan');
+      submitter.and.returnValue(of({ ok: true }));
+      await submit();
+
+      expect(submitter.calls.mostRecent().args[0].nameLatin).toBe('Sara Ali Hassan');
+      expect(submitter.calls.mostRecent().args[1]).not.toBe(key);
+    });
+
+    it('Start over that is cancelled keeps the form locked and the draft', async () => {
+      await failCreate();
+
+      await startOver('cancel');
+
+      expect(field('nameLatin').disabled).toBeTrue();
+      expect(drafts.load('add-person')).not.toBeNull();
+    });
+
+    it('says to start over when the server already took this key with other details', async () => {
+      await failCreate();
+      submitter.and.returnValue(
+        throwError(
+          () =>
+            new ApiError(
+              'idempotency_key_reused',
+              'This Idempotency-Key was already used with a different request.',
+              422,
+            ),
+        ),
+      );
+
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(alertText()).toContain('already received with different details');
+      expect(alertText()).not.toContain('Idempotency-Key');
+      expect(el().querySelector('button.start-over')).not.toBeNull();
+    });
+
+    it('does not lock an edit: it keeps its draft and stays editable', async () => {
+      submitter.and.returnValue(networkDown());
+      create({ mode: 'edit', draftKey: 'edit-person:7', initial: { nameAr: '', nameLatin: 'Omar' } });
+      setText('nameLatin', 'Omar Said');
+
+      await submit();
+
+      expect(drafts.load<PersonFormValue>('edit-person:7')?.nameLatin).toBe('Omar Said');
+      expect(field('nameLatin').disabled).toBeFalse();
+      expect(el().querySelector('.locked-note')).toBeNull();
+
+      setText('nameLatin', 'Omar Saeed');
+      submitter.and.returnValue(of({ ok: true }));
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+
+      expect(submitter.calls.mostRecent().args[0].nameLatin).toBe('Omar Saeed');
+      expect(saved).toHaveBeenCalledTimes(1);
+    });
+
+    it('a restored edit draft is not locked', async () => {
+      submitter.and.returnValue(networkDown());
+      create({ mode: 'edit', draftKey: 'edit-person:7', initial: { nameAr: '', nameLatin: 'Omar' } });
+      setText('nameLatin', 'Omar Said');
+      await submit();
+      fixture.destroy();
+
+      create({ mode: 'edit', draftKey: 'edit-person:7', initial: { nameAr: '', nameLatin: 'Omar' } });
+
+      expect(field('nameLatin').value).toBe('Omar Said');
+      expect(field('nameLatin').disabled).toBeFalse();
+    });
+  });
+
   it('keeps Save disabled after a successful save, until the page moves on', async () => {
     create();
     setText('nameLatin', 'Sara Ali');
@@ -348,15 +537,21 @@ describe('PersonFormComponent', () => {
       expect(el().querySelector('.pending-tag')?.textContent).toContain('Python');
     });
 
-    it('is added on a retry too, with the same Idempotency-Key', async () => {
+    it('cannot be typed after a failed create: the tag fields are locked until it goes through', async () => {
       submitter.and.returnValue(throwError(() => new ApiError('network_error', 'down', 0)));
       create();
       setText('nameLatin', 'Sara Ali');
       chooseStrength('weak');
-      await submit();
-      const key = submitter.calls.mostRecent().args[1];
       openMore();
       typeTag(1, 'Banking');
+      await submit();
+      const key = submitter.calls.mostRecent().args[1];
+
+      const tagFields = Array.from(el().querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>(
+        'app-tag-input input, app-tag-input button, app-tag-input select',
+      ));
+      expect(tagFields.length).toBeGreaterThan(0);
+      expect(tagFields.every((f) => f.disabled)).toBeTrue();
 
       submitter.and.returnValue(of({ ok: true }));
       (el().querySelector('button.retry') as HTMLButtonElement).click();
@@ -365,23 +560,6 @@ describe('PersonFormComponent', () => {
       expect(submitter).toHaveBeenCalledTimes(2);
       expect(submitter.calls.mostRecent().args[0].industries).toEqual(['Banking']);
       expect(submitter.calls.mostRecent().args[1]).toBe(key);
-    });
-
-    it('blocks a retry just like a save when a skill has no category', async () => {
-      submitter.and.returnValue(throwError(() => new ApiError('network_error', 'down', 0)));
-      create();
-      setText('nameLatin', 'Sara Ali');
-      chooseStrength('weak');
-      await submit();
-      openMore();
-      typeTag(0, 'Python');
-
-      (el().querySelector('button.retry') as HTMLButtonElement).click();
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      expect(submitter).toHaveBeenCalledTimes(1);
-      expect(el().querySelector('.pending-tag')?.textContent).toContain('Python');
     });
 
     it('is added on save when the skill has its category', async () => {
@@ -461,7 +639,7 @@ describe('PersonFormComponent', () => {
     create();
 
     expect(field('nameLatin').value).toBe('Sara Ali');
-    expect(el().querySelector('.draft-note')).not.toBeNull();
+    expect(el().querySelector('.locked-note')).not.toBeNull();
   });
 
   it('restores a saved draft, and discarding it clears the form', async () => {

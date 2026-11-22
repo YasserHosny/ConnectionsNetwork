@@ -50,6 +50,7 @@ const SUGGEST_DELAY_MS = 300;
               <select
                 class="level"
                 [attr.aria-label]="'person.skillLevel.label' | translate"
+                [disabled]="disabled()"
                 (change)="setLevel(i, $event)"
               >
                 <option value="" [selected]="!tag.level">{{ 'person.skillLevel.none' | translate }}</option>
@@ -64,6 +65,7 @@ const SUGGEST_DELAY_MS = 300;
               type="button"
               class="remove"
               [attr.aria-label]="'person.tags.remove' | translate: { label: tag.label }"
+              [disabled]="disabled()"
               (click)="remove(i)"
             >
               <mat-icon aria-hidden="true">close</mat-icon>
@@ -80,6 +82,7 @@ const SUGGEST_DELAY_MS = 300;
           matInput
           autocomplete="off"
           [matAutocomplete]="auto"
+          [disabled]="disabled()"
           [value]="text()"
           (input)="onInput($event)"
           (focus)="queries.next(text())"
@@ -100,7 +103,7 @@ const SUGGEST_DELAY_MS = 300;
       @if (kind() === 'skill') {
         <mat-form-field appearance="outline" subscriptSizing="dynamic" class="category-field">
           <mat-label>{{ 'person.tags.categoryLabel' | translate }}</mat-label>
-          <select matNativeControl class="category" (change)="onCategory($event)">
+          <select matNativeControl class="category" [disabled]="disabled()" (change)="onCategory($event)">
             <option value="" [selected]="!category()">{{ 'person.tags.categoryPlaceholder' | translate }}</option>
             @for (option of categories; track option.value) {
               <option [value]="option.value" [selected]="category() === option.value">
@@ -111,7 +114,7 @@ const SUGGEST_DELAY_MS = 300;
         </mat-form-field>
       }
 
-      <button mat-stroked-button type="button" class="add" (click)="add()">
+      <button mat-stroked-button type="button" class="add" [disabled]="disabled()" (click)="add()">
         {{ 'person.tags.add' | translate }}
       </button>
     </div>
@@ -194,6 +197,8 @@ export class TagInputComponent {
   /** i18n key of the input's label. */
   readonly labelKey = input('person.form.skills');
   readonly value = model<TagValue[]>([]);
+  /** Read-only: the chips are shown, nothing can be typed, added, removed or changed. */
+  readonly disabled = input(false);
 
   protected readonly categories = SKILL_CATEGORY_OPTIONS;
   protected readonly levels = SKILL_LEVEL_OPTIONS;
@@ -267,6 +272,7 @@ export class TagInputComponent {
   }
 
   protected add(): void {
+    if (this.disabled()) return;
     const label = this.text().trim();
     if (!label) return;
     const isSkill = this.kind() === 'skill';
@@ -284,10 +290,12 @@ export class TagInputComponent {
   }
 
   protected remove(index: number): void {
+    if (this.disabled()) return;
     this.value.update((tags) => tags.filter((_, i) => i !== index));
   }
 
   protected setLevel(index: number, event: Event): void {
+    if (this.disabled()) return;
     const level = ((event.target as HTMLSelectElement).value || null) as SkillLevel | null;
     this.value.update((tags) => tags.map((t, i) => (i === index ? { ...t, level } : t)));
   }

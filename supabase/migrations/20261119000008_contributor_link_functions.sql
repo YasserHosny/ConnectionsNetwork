@@ -169,11 +169,13 @@ grant execute on function public.contributor_tag_suggest(bytea, text, text) to c
 -- to one; a stated skill level wins over none. Returns the new person's id; reads nothing else.
 --
 -- p_idempotency_key (optional; the request's Idempotency-Key, ruling R18): the first call with a
--- key stores it with the new person's id (public.idempotency_key, scope 'link:<link id>'); a
--- later call through the same link with the same key, within 7 days, inserts nothing and returns
--- that id. The only row it reads is one this link wrote. A key that is not 1-128 characters of
--- [A-Za-z0-9_-] raises 22023. Concurrent calls with one key are serialised by a transaction
--- advisory lock on (link, key).
+-- key stores it with the new person's id and the payload's hash (public.idempotency_key, scope
+-- 'link:<link id>'); a later call through the same link with the same key and the same payload,
+-- within 7 days, inserts nothing and returns that id. The same key with a different payload
+-- raises CN001 (idempotency_key_reused) and writes nothing. The hash is the sha256 (hex) of
+-- p_payload as jsonb text, so key order and whitespace do not count. The only row it reads is one
+-- this link wrote. A key that is not 1-128 characters of [A-Za-z0-9_-] raises 22023. Concurrent
+-- calls with one key are serialised by a transaction advisory lock on (link, key).
 -- ---------------------------------------------------------------------------
 create or replace function public.contribute_person(
   p_token_hash      bytea,
@@ -212,6 +214,8 @@ declare
   v_id       uuid;
   v_tag_id   uuid;
   v_scope    text;
+  v_hash     text;
+  v_stored   text;
 begin
   select l.id, l.network_id, l.person_id into v_link
   from public.contributor_link l
@@ -226,14 +230,20 @@ begin
       raise exception 'invalid idempotency key' using errcode = '22023';
     end if;
     v_scope := 'link:' || v_link.id::text;
+    -- jsonb's text form is canonical (keys sorted, no insignificant whitespace).
+    v_hash := pg_catalog.encode(
+      pg_catalog.sha256(pg_catalog.convert_to(p_payload::text, 'UTF8')), 'hex');
     perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
       v_link.network_id::text || ':' || v_scope || ':' || p_idempotency_key, 0));
     delete from public.idempotency_key k
     where k.network_id = v_link.network_id and k.created_at < now() - interval '7 days';
-    select k.person_id into v_id
+    select k.person_id, k.payload_hash into v_id, v_stored
     from public.idempotency_key k
     where k.network_id = v_link.network_id and k.scope = v_scope and k.key = p_idempotency_key;
     if found then
+      if v_stored is distinct from v_hash then
+        raise exception 'idempotency_key_reused' using errcode = 'CN001';
+      end if;
       return v_id;
     end if;
   end if;
@@ -411,8 +421,8 @@ begin
   );
 
   if p_idempotency_key is not null then
-    insert into public.idempotency_key (network_id, scope, key, person_id)
-    values (v_link.network_id, v_scope, p_idempotency_key, v_id);
+    insert into public.idempotency_key (network_id, scope, key, person_id, payload_hash)
+    values (v_link.network_id, v_scope, p_idempotency_key, v_id, v_hash);
   end if;
 
   return v_id;
@@ -422,7 +432,8 @@ $$;
 comment on function public.contribute_person(bytea, jsonb, text) is
   'Insert one person (and their tags, links, contacts, connection) through a valid link token
    hash; raises invalid_link (28000) otherwise, 22023/22P02 on an invalid payload. A repeated
-   idempotency key returns the first call''s person. contributor_api only.';
+   idempotency key with the same payload returns the first call''s person; with another payload
+   it raises idempotency_key_reused (CN001). contributor_api only.';
 
 revoke all on function public.contribute_person(bytea, jsonb, text)
   from public, anon, authenticated, service_role;

@@ -30,7 +30,11 @@ from connections_api.modules.people.schemas import (
     TagKind,
     TagOut,
 )
-from connections_api.shared.idempotency import IDEMPOTENCY_KEY_TTL
+from connections_api.shared.idempotency import (
+    IDEMPOTENCY_KEY_TTL,
+    IdempotencyKeyReusedError,
+    request_hash,
+)
 
 type Conn = psycopg.Connection[Any]
 type Row = dict[str, Any]
@@ -333,8 +337,11 @@ def _possible_duplicates(conn: Conn, person_id: UUID) -> list[DuplicateHint]:
 _ADMIN_SCOPE = "admin"
 
 
-def _replayed_person(conn: Conn, ctx: AdminContext, key: str) -> UUID | None:
+def _replayed_person(conn: Conn, ctx: AdminContext, key: str, payload_hash: str) -> UUID | None:
     """The person a stored Idempotency-Key created, after forgetting keys past their TTL.
+
+    A key stored with another request's hash raises IdempotencyKeyReusedError: replaying it would
+    answer success and drop whatever the new request changed.
 
     A transaction advisory lock on (network, scope, key) makes a concurrent retry with the same
     key wait for the first attempt to commit, and then find its row, rather than create a second
@@ -349,10 +356,14 @@ def _replayed_person(conn: Conn, ctx: AdminContext, key: str) -> UUID | None:
         (IDEMPOTENCY_KEY_TTL,),
     )
     row = conn.execute(
-        "select person_id from idempotency_key where scope = %s and key = %s",
+        "select person_id, payload_hash from idempotency_key where scope = %s and key = %s",
         (_ADMIN_SCOPE, key),
     ).fetchone()
-    return row[0] if row else None
+    if row is None:
+        return None
+    if row[1] != payload_hash:
+        raise IdempotencyKeyReusedError()
+    return row[0]
 
 
 def _create_response(conn: Conn, person_id: UUID) -> CreatePersonResponse:
@@ -371,10 +382,12 @@ def create_person(
     """Create a person connected to `connect_to_person_id`.
 
     With an Idempotency-Key that already created a person (within 7 days), nothing is written
-    and the answer is that person, as it is now.
+    and the answer is that person, as it is now; when that key came with a different request
+    body, a 422 `idempotency_key_reused`.
     """
+    payload_hash = request_hash(request)
     if idempotency_key is not None:
-        replayed = _replayed_person(conn, ctx, idempotency_key)
+        replayed = _replayed_person(conn, ctx, idempotency_key, payload_hash)
         if replayed is not None:
             return _create_response(conn, replayed)
     _require_person(conn, request.connect_to_person_id, "connect_to_person_id")
@@ -405,9 +418,9 @@ def create_person(
     )  # fmt: skip
     if idempotency_key is not None:
         conn.execute(
-            "insert into idempotency_key (network_id, scope, key, person_id)"
-            " values (%s, %s, %s, %s)",
-            (ctx.network_id, _ADMIN_SCOPE, idempotency_key, person_id),
+            "insert into idempotency_key (network_id, scope, key, person_id, payload_hash)"
+            " values (%s, %s, %s, %s, %s)",
+            (ctx.network_id, _ADMIN_SCOPE, idempotency_key, person_id, payload_hash),
         )
     return _create_response(conn, person_id)
 

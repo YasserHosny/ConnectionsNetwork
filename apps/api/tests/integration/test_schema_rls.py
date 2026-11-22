@@ -113,8 +113,8 @@ def _seed_every_table(conn: psycopg.Connection[Any], network: NetworkFixture) ->
         (nid, a, b),
     )
     conn.execute(
-        "insert into idempotency_key (network_id, scope, key, person_id)"
-        " values (%s, 'admin', %s, %s)",
+        "insert into idempotency_key (network_id, scope, key, person_id, payload_hash)"
+        " values (%s, 'admin', %s, %s, repeat('0', 64))",
         (nid, str(uuid4()), other),
     )
 

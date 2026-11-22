@@ -8,7 +8,9 @@ Skipped unless TEST_DATABASE_URL is set (CI always sets it).
 
 from __future__ import annotations
 
+import json
 import os
+import re
 from collections.abc import Iterator
 from typing import Any
 from uuid import UUID, uuid4
@@ -1022,6 +1024,74 @@ def test_create_replayed_with_the_same_key_creates_one_person(
     assert again.json() == first.json()
     assert count(conn, "select count(*) from person where name_latin = 'Retry Person'") == 1
     assert count(conn, "select count(*) from idempotency_key where key = %s", key) == 1
+
+
+def test_create_replayed_with_the_same_body_in_another_key_order_replays(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    key = str(uuid4())
+    first = post_new_person(client, network, key)
+
+    again = client.post(
+        "/api/v1/people",
+        content=json.dumps(
+            {
+                "strength": "normal",
+                "connect_to_person_id": str(network.admin_person_id),
+                "person": dict(reversed(person_body(name_latin="Retry Person").items())),
+            },
+            indent=2,
+        ),
+        headers={"Idempotency-Key": key, "Content-Type": "application/json"},
+    )
+
+    assert again.status_code == 201, again.text
+    assert again.json() == first.json()
+    assert count(conn, "select count(*) from person where name_latin = 'Retry Person'") == 1
+
+
+def test_create_refuses_a_key_reused_with_a_different_body(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    key = str(uuid4())
+    first = post_new_person(client, network, key)
+
+    edited = post_new_person(client, network, key, name="Retry Person Edited")
+
+    assert first.status_code == 201, first.text
+    assert edited.status_code == 422, edited.text
+    assert edited.json()["code"] == "idempotency_key_reused"
+    names = "('Retry Person', 'Retry Person Edited')"
+    assert count(conn, f"select count(*) from person where name_latin in {names}") == 1
+    assert count(conn, "select count(*) from idempotency_key where key = %s", key) == 1
+    # The original submission still replays.
+    assert post_new_person(client, network, key).json() == first.json()
+
+
+def test_create_stores_the_body_hash_with_the_key(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    key = str(uuid4())
+    post_new_person(client, network, key)
+
+    stored = conn.execute(
+        "select payload_hash from idempotency_key where key = %s", (key,)
+    ).fetchone()
+
+    assert stored is not None
+    assert re.fullmatch(r"[0-9a-f]{64}", stored[0])
+
+
+@pytest.mark.parametrize("bad_hash", ["", "ABC", "a" * 63, "A" * 64, "g" * 64])
+def test_idempotency_key_refuses_a_payload_hash_that_is_not_sha256_hex(
+    network: NetworkFixture, conn: psycopg.Connection[Any], bad_hash: str
+) -> None:
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute(
+            "insert into idempotency_key (network_id, scope, key, person_id, payload_hash)"
+            " values (%s, 'admin', %s, %s, %s)",
+            (network.network_id, str(uuid4()), network.admin_person_id, bad_hash),
+        )
 
 
 def test_create_with_different_keys_creates_two_people(

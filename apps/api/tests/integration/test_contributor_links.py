@@ -630,6 +630,16 @@ def call_contribute_person(token_hash: bytes, payload: object) -> UUID:
     return row[0]
 
 
+def call_contribute_person_with_key(token_hash: bytes, payload: object, key: str) -> UUID:
+    with db.contributor_tx(dsn=DSN) as tx:
+        row = tx.execute(
+            "select public.contribute_person(%s, %s::jsonb, %s)",
+            (token_hash, json.dumps(payload), key),
+        ).fetchone()
+    assert row is not None
+    return row[0]
+
+
 def test_contribute_person_accepts_a_minimal_payload(link_hash: bytes) -> None:
     person_id = call_contribute_person(
         link_hash, {"person": {"name_ar": "نور"}, "strength": "weak"}
@@ -823,10 +833,12 @@ def test_rate_limit_key_is_not_the_stored_hash(
 # -- Idempotency-Key on contribute (spec 11.1, ruling R18) ---------------------------------------
 
 
-def contribute_with_key(anon: TestClient, token: str, key: str | None) -> Response:
+def contribute_with_key(
+    anon: TestClient, token: str, key: str | None, strength: str = "normal"
+) -> Response:
     return anon.post(
         "/api/v1/contribute/people",
-        json={"person": person_body(name_latin="Retried"), "strength": "normal"},
+        json={"person": person_body(name_latin="Retried"), "strength": strength},
         headers={TOKEN_HEADER: token, **({} if key is None else {"Idempotency-Key": key})},
     )
 
@@ -846,6 +858,23 @@ def test_contribute_replayed_with_the_same_key_creates_one_person(
     assert count(conn, "select count(*) from person where name_latin = 'Retried'") == 1
     assert count(conn, "select count(*) from connection where %s in (person_a, person_b)",
                  UUID(first.json()["person_id"])) == 1  # fmt: skip
+
+
+def test_contribute_refuses_a_key_reused_with_a_different_body(
+    admin: TestClient, anon: TestClient, contributor: UUID, conn: psycopg.Connection[Any]
+) -> None:
+    token = token_of(create_link(admin, contributor)["url"])
+    key = str(uuid4())
+    first = contribute_with_key(anon, token, key)
+
+    edited = contribute_with_key(anon, token, key, strength="strong")
+
+    assert first.status_code == 201, first.text
+    assert edited.status_code == 422, edited.text
+    assert edited.json()["code"] == "idempotency_key_reused"
+    assert count(conn, "select count(*) from person where name_latin = 'Retried'") == 1
+    # The original submission still replays.
+    assert contribute_with_key(anon, token, key).json() == first.json()
 
 
 def test_contribute_with_different_keys_creates_two_people(
@@ -896,6 +925,36 @@ def test_contribute_person_function_replays_a_key(link_hash: bytes) -> None:
             (link_hash, json.dumps(payload)),
         ).fetchone()
     assert first == again
+
+
+def test_contribute_person_function_replays_the_same_payload_in_another_key_order(
+    link_hash: bytes,
+) -> None:
+    with db.contributor_tx(dsn=DSN) as tx:
+        first = tx.execute(
+            "select public.contribute_person(%s, %s::jsonb, 'k-order')",
+            (link_hash, '{"person": {"name_latin": "Direct"}, "strength": "weak"}'),
+        ).fetchone()
+        again = tx.execute(
+            "select public.contribute_person(%s, %s::jsonb, 'k-order')",
+            (link_hash, '{ "strength":"weak","person":{ "name_latin":"Direct" } }'),
+        ).fetchone()
+    assert first == again
+
+
+def test_contribute_person_function_refuses_a_key_reused_with_another_payload(
+    link_hash: bytes, conn: psycopg.Connection[Any]
+) -> None:
+    payload = {"person": {"name_latin": "Direct"}, "strength": "weak"}
+    call_contribute_person_with_key(link_hash, payload, "k-reused")
+
+    edited = {"person": {"name_latin": "Direct Edited"}, "strength": "weak"}
+    with pytest.raises(psycopg.Error) as raised:
+        call_contribute_person_with_key(link_hash, edited, "k-reused")
+
+    assert raised.value.sqlstate == "CN001"
+    names = "('Direct', 'Direct Edited')"
+    assert count(conn, f"select count(*) from person where name_latin in {names}") == 1
 
 
 def test_contribute_person_function_refuses_a_malformed_key(link_hash: bytes) -> None:

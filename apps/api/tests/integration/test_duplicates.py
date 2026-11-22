@@ -601,8 +601,8 @@ def test_merge_repoints_every_other_reference(
     dismiss(conn, network, keep, drop)
     # A retry of the request that created drop answers with keep after the merge.
     conn.execute(
-        "insert into idempotency_key (network_id, scope, key, person_id)"
-        " values (%s, 'admin', 'created-drop', %s)",
+        "insert into idempotency_key (network_id, scope, key, person_id, payload_hash)"
+        " values (%s, 'admin', 'created-drop', %s, repeat('0', 64))",
         (network.network_id, drop),
     )
 

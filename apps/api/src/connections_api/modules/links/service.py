@@ -39,6 +39,10 @@ from connections_api.modules.links.schemas import (
 )
 from connections_api.modules.people.schemas import TagKind
 from connections_api.modules.people.service import display_name
+from connections_api.shared.idempotency import (
+    IDEMPOTENCY_KEY_REUSED_SQLSTATE,
+    IdempotencyKeyReusedError,
+)
 
 type Conn = psycopg.Connection[Any]
 
@@ -141,7 +145,8 @@ def revoke_link(conn: Conn, link_id: UUID) -> LinkOut:
 def _contributor_tx() -> Iterator[Conn]:
     """A contributor_api transaction, with the definer functions' errors mapped to API errors.
 
-    invalid_link (28000) is the 404. A payload the database refuses (classes 22 and 23) is a 422
+    invalid_link (28000) is the 404. An Idempotency-Key replayed with another payload (CN001) is
+    the 422 `idempotency_key_reused`. A payload the database refuses (classes 22 and 23) is a 422
     without details: the API validated the same rules already, and the database's message must
     not be echoed or logged, since it can quote what was sent.
     """
@@ -152,6 +157,10 @@ def _contributor_tx() -> Iterator[Conn]:
         raise LinkNotFoundError() from None
     except (psycopg.DataError, psycopg.IntegrityError):
         raise ValidationFailed(details={"reason": "invalid_payload"}) from None
+    except psycopg.Error as exc:
+        if exc.sqlstate == IDEMPOTENCY_KEY_REUSED_SQLSTATE:
+            raise IdempotencyKeyReusedError() from None
+        raise
 
 
 def link_info(token: str | None) -> ContributorInfo:
@@ -178,7 +187,11 @@ def suggest_tags(token: str | None, kind: TagKind, q: str) -> list[ContributorTa
 def contribute(
     token: str | None, request: ContributeRequest, idempotency_key: str | None = None
 ) -> UUID:
-    """The new person's id; a replayed Idempotency-Key answers with the person it created."""
+    """The new person's id; a replayed Idempotency-Key answers with the person it created.
+
+    The payload's hash is taken in contribute_person, so the same key with another payload is
+    refused there (`idempotency_key_reused`).
+    """
     token_hash = hash_token(token or "")
     payload = {"person": request.person.payload(), "strength": request.strength.value}
     with _contributor_tx() as conn:

@@ -278,13 +278,19 @@ create index duplicate_dismissal_person_b_idx on public.duplicate_dismissal (per
 --   scope 'link:<link id>' POST /api/v1/contribute/people, through that link (contribute_person)
 -- A key older than 7 days is forgotten (purged when a new key is stored). The person's delete
 -- cascades here, so a replay after a delete creates the person again.
+-- payload_hash is the sha256 (lowercase hex) of the request the key first came with: a replay
+-- with the same key and the same request answers with the person; the same key with a different
+-- request is refused (`idempotency_key_reused`), so edits made before a retry are never silently
+-- dropped. The admin's hash is over the request body as canonical JSON (people/service.py), a
+-- link's over the jsonb payload contribute_person receives.
 -- ---------------------------------------------------------------------------
 create table public.idempotency_key (
-  network_id uuid not null references public.network (id) on delete cascade,
-  scope      text not null check (scope = 'admin' or scope ~ '^link:[0-9a-f-]{36}$'),
-  key        text not null check (key ~ '^[A-Za-z0-9_-]{1,128}$'),
-  person_id  uuid not null,
-  created_at timestamptz not null default now(),
+  network_id   uuid not null references public.network (id) on delete cascade,
+  scope        text not null check (scope = 'admin' or scope ~ '^link:[0-9a-f-]{36}$'),
+  key          text not null check (key ~ '^[A-Za-z0-9_-]{1,128}$'),
+  person_id    uuid not null,
+  payload_hash text not null check (payload_hash ~ '^[0-9a-f]{64}$'),
+  created_at   timestamptz not null default now(),
 
   primary key (network_id, scope, key),
   constraint idempotency_key_person_fk foreign key (network_id, person_id)

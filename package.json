@@ -1,0 +1,17 @@
+{
+  "name": "connections-network",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "test:api": "uv run --project apps/api pytest",
+    "lint:api": "uv run --project apps/api ruff check apps/api",
+    "db:test": "bash scripts/test-db.sh"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0"
+  }
+}

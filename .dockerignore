@@ -1,0 +1,18 @@
+# Keeps the build contexts small and keeps secrets out of every image.
+.git
+.github
+.superpowers
+.turbo
+.venv
+.env
+.env.*
+!.env.example
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.angular
+**/dist
+docs
+supabase
+scripts

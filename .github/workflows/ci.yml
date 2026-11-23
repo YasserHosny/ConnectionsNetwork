@@ -1,0 +1,131 @@
+name: CI
+
+# Every job here is required to merge.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
+  # Cancel superseded PR runs; pushes to main must finish so every merged commit is tested.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Read-only by default; a job that needs more (the secret scan) asks for it itself.
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.12'
+  NODE_VERSION: '24'
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    # gitleaks-action writes its findings back to the pull request. Without these it fails with
+    # 403 'Resource not accessible by integration'.
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs history to scan the commits a PR adds, not just the tree.
+          fetch-depth: 0
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint backend
+        run: uv run --project apps/api ruff check apps/api
+      - name: Lint workspace
+        # Runs every package's `lint` task through turbo: for apps/web that is ESLint plus the
+        # i18n key, logical-CSS and PWA checks (apps/web/scripts/check-*.mjs).
+        run: pnpm lint
+
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Prepare the schema
+        # Setting TEST_DATABASE_URL without preparing the schema would be worse than not setting
+        # it: the database-backed tests stop skipping and start failing on an empty database.
+        # The stand-ins file is shared with scripts/test-db.sh, so local and CI agree.
+        env:
+          PGPASSWORD: postgres
+        run: |
+          shopt -s nullglob
+          export LC_ALL=C
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -q -f supabase/tests/standins.sql
+          for f in supabase/migrations/*.sql; do
+            echo "applying $f"
+            psql -h localhost -U postgres -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+      - name: Run unit and integration tests
+        # TEST_DATABASE_URL is what the database-backed tests look for; without it they SKIP
+        # rather than fail, so omitting it would quietly hollow out this job.
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: uv run --project apps/api pytest
+
+  web-unit-tests:
+    name: Web unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          # apps/web keeps its own lockfile, as in ProcurePilot; the lint job installs the whole
+          # workspace from the root one.
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: Install web dependencies
+        working-directory: apps/web
+        # --ignore-workspace makes pnpm skip the root pnpm-workspace.yaml, which is also where
+        # its `allowBuilds` list lives, so the strict build-script check is relaxed here instead
+        # (esbuild, lmdb and the others only fetch prebuilt binaries).
+        run: pnpm install --ignore-workspace --frozen-lockfile --config.strict-dep-builds=false
+      - name: Unit tests
+        # Includes the en/ar catalogue parity spec. Karma drives the Chrome the runner provides.
+        working-directory: apps/web
+        run: pnpm exec ng test --watch=false --browsers=ChromeHeadless
+      - name: Production build
+        # Also generates the service worker from ngsw-config.json and enforces the bundle budgets.
+        working-directory: apps/web
+        run: pnpm exec ng build

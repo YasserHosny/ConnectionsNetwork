@@ -1,0 +1,79 @@
+name: Backup
+
+# The Supabase Free plan has no backups and pauses a project after 7 days without activity. Every
+# night this job dumps the database, encrypts the dump with age (public key only; the private key
+# stays offline with the owner), uploads it to bunny.net Storage, deletes backups older than 30
+# days, and pokes the API and Supabase so the project does not pause. The steps live in
+# scripts/backup.sh. Setup and the restore drill: docs/operations/backup-restore.md.
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+# Two runs must never overlap (a manual run during the nightly one): they would both prune and
+# upload the same day's object. A second run waits for the first.
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: Dump, encrypt, upload, prune, keepalive
+    # workflow_dispatch can be started from any branch by anyone with write access, and this job
+    # holds the database URL. It runs from main only, in its own `backup` environment: the
+    # deployment-branch rule (main only) and the secrets belong to the owner. Never add required
+    # reviewers to `backup`: a scheduled run would wait for approval, send no failure email and
+    # time out after 30 days, which is silently no backups. Scheduled runs use the default branch.
+    if: github.ref == 'refs/heads/main'
+    environment: backup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install postgresql-client-17, age and jq
+        # pg_dump must be the same major version as the server (Postgres 17): the runner image
+        # ships an older client, so take 17 from the PostgreSQL project's own apt repository.
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17 age jq
+          pg_dump --version
+          age --version
+
+      - name: Dump, encrypt and upload to bunny.net Storage
+        env:
+          DATABASE_URL_SESSION: ${{ secrets.DATABASE_URL_SESSION }}
+          BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+          BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+          BUNNY_STORAGE_HOST: ${{ secrets.BUNNY_STORAGE_HOST }}
+          BUNNY_STORAGE_KEY: ${{ secrets.BUNNY_STORAGE_KEY }}
+        run: scripts/backup.sh backup
+
+      - name: Delete backups older than 30 days
+        env:
+          BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+          BUNNY_STORAGE_HOST: ${{ secrets.BUNNY_STORAGE_HOST }}
+          BUNNY_STORAGE_KEY: ${{ secrets.BUNNY_STORAGE_KEY }}
+        run: scripts/backup.sh retention
+
+      - name: Keepalive (API database check and Supabase REST)
+        # Runs even when the backup failed: a failed dump must not also let the project pause.
+        if: always()
+        env:
+          WEB_PUBLIC_URL: ${{ secrets.WEB_PUBLIC_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: scripts/backup.sh keepalive

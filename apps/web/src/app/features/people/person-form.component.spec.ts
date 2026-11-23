@@ -1,0 +1,789 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { FormGroup } from '@angular/forms';
+import { provideRouter } from '@angular/router';
+import { provideTranslateService } from '@ngx-translate/core';
+import { Observable, Subject, of, throwError } from 'rxjs';
+
+import { ApiError } from '../../core/api.client';
+import { AuthService } from '../../core/auth.service';
+import { DraftStore } from '../../core/draft.store';
+import { LocaleService } from '../../core/locale.service';
+import { fakeAuthService, fakeSession, loadCatalogues } from '../../testing/test-helpers';
+import { type PersonFormValue } from './person-form.model';
+import { PersonFormComponent } from './person-form.component';
+
+const AR_STRENGTH_HELP = 'أي حد تقدر تبعتله رسالة وهو يعرف إنت مين. اللي اتقابلتوا مرة: ضعيفة.';
+
+describe('PersonFormComponent', () => {
+  let fixture: ComponentFixture<PersonFormComponent>;
+  let drafts: DraftStore;
+  let submitter: jasmine.Spy<(value: PersonFormValue, idempotencyKey: string) => Observable<unknown>>;
+  let saved: jasmine.Spy;
+
+  const el = () => fixture.nativeElement as HTMLElement;
+  const field = (name: string) => el().querySelector(`[formcontrolname="${name}"]`) as HTMLInputElement;
+  const alertText = () => el().querySelector('[role=alert]')?.textContent ?? '';
+
+  function setText(name: string, value: string): void {
+    const input = field(name);
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  }
+
+  function chooseStrength(value: 'strong' | 'normal' | 'weak'): void {
+    (el().querySelector(`mat-radio-button[value="${value}"] input`) as HTMLInputElement).click();
+  }
+
+  async function submit(): Promise<void> {
+    el().querySelector('form')?.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  function create(inputs: Record<string, unknown> = {}): void {
+    fixture = TestBed.createComponent(PersonFormComponent);
+    fixture.componentRef.setInput('draftKey', 'add-person');
+    fixture.componentRef.setInput('submitter', submitter);
+    for (const [key, value] of Object.entries(inputs)) fixture.componentRef.setInput(key, value);
+    fixture.componentInstance.saved.subscribe(saved);
+    fixture.detectChanges();
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    submitter = jasmine.createSpy('submitter').and.returnValue(of({ ok: true }));
+    saved = jasmine.createSpy('saved');
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideTranslateService(),
+        { provide: AuthService, useValue: fakeAuthService(fakeSession('aal2')) },
+      ],
+    });
+    loadCatalogues();
+    TestBed.inject(LocaleService).setLocale('en');
+    drafts = TestBed.inject(DraftStore);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    delete (navigator as unknown as Record<string, unknown>)['contacts'];
+  });
+
+  it('form invalid without any name', async () => {
+    create();
+    chooseStrength('normal');
+
+    await submit();
+
+    expect(submitter).not.toHaveBeenCalled();
+    expect(el().textContent).toContain('Enter a name in Arabic or English.');
+  });
+
+  it('is invalid without a strength', async () => {
+    create();
+    setText('nameLatin', 'Sara Ali');
+
+    await submit();
+
+    expect(submitter).not.toHaveBeenCalled();
+    expect(el().textContent).toContain('Choose the connection strength.');
+  });
+
+  it('accepts a name in either script alone', async () => {
+    create();
+    setText('nameAr', 'سارة علي');
+    chooseStrength('weak');
+
+    await submit();
+
+    expect(submitter).toHaveBeenCalledTimes(1);
+    expect(submitter.calls.mostRecent().args[0].nameAr).toBe('سارة علي');
+    expect(saved).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('shows the connection definition under the strength control, in Arabic', () => {
+    TestBed.inject(LocaleService).setLocale('ar');
+    create();
+
+    expect(el().querySelector('.strength-help')?.textContent?.trim()).toBe(AR_STRENGTH_HELP);
+  });
+
+  it('keeps the optional fields collapsed under More details', () => {
+    create();
+    const more = el().querySelector('details.more') as HTMLDetailsElement;
+
+    expect(more.open).toBeFalse();
+    expect(more.querySelector('summary')?.textContent).toContain('More details');
+    expect(more.contains(field('headline'))).toBeTrue();
+    expect(more.contains(field('nameLatin'))).toBeFalse();
+  });
+
+  it('failed submit saves draft and shows retry', async () => {
+    submitter.and.returnValue(throwError(() => new ApiError('network_error', 'down', 0)));
+    create();
+    setText('nameLatin', 'Sara Ali');
+    chooseStrength('weak');
+
+    await submit();
+
+    expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
+    expect(drafts.load<PersonFormValue>('add-person')?.strength).toBe('weak');
+    expect(alertText()).toContain('kept on this device');
+    const retry = el().querySelector('button.retry') as HTMLButtonElement;
+    expect(retry).not.toBeNull();
+
+    submitter.and.returnValue(of({ ok: true }));
+    retry.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(submitter).toHaveBeenCalledTimes(2);
+    expect(saved).toHaveBeenCalledTimes(1);
+    expect(drafts.load('add-person')).toBeNull();
+    expect(el().querySelector('button.retry')).toBeNull();
+  });
+
+  describe('a save still in flight', () => {
+    function pendingSave(): Subject<unknown> {
+      const pending = new Subject<unknown>();
+      submitter.and.returnValue(pending.asObservable());
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      return pending;
+    }
+
+    it('does not write its draft back after an explicit sign-out cleared the drafts', async () => {
+      const pending = pendingSave();
+      await submit();
+
+      drafts.clearAll(); // what AuthService.signOut() does on an explicit sign-out
+      pending.error(new ApiError('network_error', 'down', 0));
+      await fixture.whenStable();
+
+      expect(drafts.load('add-person')).toBeNull();
+    });
+
+    it('still keeps the draft when the session ended (drafts not cleared)', async () => {
+      const pending = pendingSave();
+      await submit();
+
+      pending.error(new ApiError('auth.unauthenticated', 'ended', 401));
+      await fixture.whenStable();
+
+      expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
+    });
+
+    it('is cancelled when the form is destroyed: no draft, no saved event', async () => {
+      const pending = pendingSave();
+      await submit();
+
+      fixture.destroy();
+      expect(pending.observed).toBeFalse();
+      pending.error(new ApiError('network_error', 'down', 0));
+
+      expect(drafts.load('add-person')).toBeNull();
+      expect(saved).not.toHaveBeenCalled();
+    });
+  });
+
+  it('saves a draft on a server error too', async () => {
+    submitter.and.returnValue(throwError(() => new ApiError('internal_error', 'boom', 500)));
+    create();
+    setText('nameLatin', 'Sara Ali');
+    chooseStrength('weak');
+
+    await submit();
+
+    expect(drafts.load('add-person')).not.toBeNull();
+    expect(el().querySelector('button.retry')).not.toBeNull();
+  });
+
+  it('does not save a draft for a rejected request, and never shows the English API message', async () => {
+    submitter.and.returnValue(
+      throwError(
+        () =>
+          new ApiError('validation.invalid_value', 'Request validation failed.', 422, {
+            field: 'connect_to_person_id',
+            reason: 'person_not_found',
+          }),
+      ),
+    );
+    create();
+    setText('nameLatin', 'Sara Ali');
+    chooseStrength('weak');
+
+    await submit();
+
+    expect(drafts.load('add-person')).toBeNull();
+    expect(el().querySelector('button.retry')).toBeNull();
+    expect(alertText()).toContain('no longer exists');
+    expect(alertText()).not.toContain('Request validation failed.');
+  });
+
+  // ApiClient sends the admin to /mfa or /login (api.client.spec); the form keeps what was typed.
+  for (const [what, error] of [
+    ['MFA step lapsed', new ApiError('mfa_required', 'Multi-factor authentication is required.', 403)],
+    ['session ended', new ApiError('auth.unauthenticated', 'Authentication failed.', 401)],
+  ] as const) {
+    it(`keeps the draft when the ${what}`, async () => {
+      submitter.and.returnValue(throwError(() => error));
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+
+      await submit();
+
+      expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
+      expect(drafts.load<PersonFormValue>('add-person')?.strength).toBe('weak');
+      // Said in words too, in case nothing moves the page (a session without its person claim).
+      expect(alertText()).toMatch(/session ended|authenticator app/);
+    });
+  }
+
+  describe('Idempotency-Key', () => {
+    const networkDown = () => throwError(() => new ApiError('network_error', 'down', 0));
+
+    it('sends one key per submission, the same one on a retry, and keeps it in the draft', async () => {
+      submitter.and.returnValue(networkDown());
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      const key = submitter.calls.mostRecent().args[1] as string;
+
+      expect(key).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+      expect(drafts.load<Record<string, unknown>>('add-person')?.['idempotencyKey']).toBe(key);
+
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+    });
+
+    it('resubmits a restored draft with the key it was first sent with', async () => {
+      submitter.and.returnValue(networkDown());
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      const key = submitter.calls.mostRecent().args[1];
+      fixture.destroy();
+
+      submitter.and.returnValue(of({ ok: true }));
+      create();
+      await submit();
+
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+    });
+
+    it('uses a new key for a new person', async () => {
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      const first = submitter.calls.mostRecent().args[1];
+      fixture.destroy();
+
+      create();
+      setText('nameLatin', 'Omar');
+      chooseStrength('weak');
+      await submit();
+
+      expect(submitter.calls.mostRecent().args[1]).not.toBe(first);
+    });
+  });
+
+  describe('a create that failed is locked until it goes through', () => {
+    const networkDown = () => throwError(() => new ApiError('network_error', 'down', 0));
+    const formOf = () => (fixture.componentInstance as unknown as { form: FormGroup }).form;
+    const dialog = () => document.querySelector('mat-dialog-container');
+
+    async function until<T>(condition: () => T): Promise<NonNullable<T>> {
+      let value = condition();
+      for (let i = 0; i < 100 && !value; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        fixture.detectChanges();
+        value = condition();
+      }
+      expect(value).toBeTruthy();
+      return value as NonNullable<T>;
+    }
+
+    async function failCreate(failure = networkDown()): Promise<string> {
+      submitter.and.returnValue(failure);
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      await submit();
+      return submitter.calls.mostRecent().args[1];
+    }
+
+    function lockedControls(): (HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement)[] {
+      return Array.from(el().querySelectorAll<HTMLInputElement>('form input, form select, form textarea')).concat(
+        Array.from(el().querySelectorAll<HTMLInputElement>('button.add-row, app-tag-input button')),
+      );
+    }
+
+    async function startOver(answer: 'confirm' | 'cancel'): Promise<void> {
+      (el().querySelector('button.start-over') as HTMLButtonElement).click();
+      await until(dialog);
+      (document.querySelector(`.dialog-${answer}`) as HTMLButtonElement).click();
+      await until(() => !dialog());
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    it('disables every input after a network failure and says why', async () => {
+      await failCreate();
+
+      const controls = lockedControls();
+      expect(controls.length).toBeGreaterThan(5);
+      expect(controls.filter((c) => !c.disabled)).toEqual([]);
+      expect((el().querySelector('button.save') as HTMLButtonElement).disabled).toBeTrue();
+      expect(el().querySelector('.locked-note')?.textContent).toContain('locked until it is saved');
+      expect(el().querySelector('button.retry')).not.toBeNull();
+      expect(el().querySelector('button.start-over')).not.toBeNull();
+    });
+
+    it('locks the form when the session ended too (the draft is kept, R14)', async () => {
+      await failCreate(throwError(() => new ApiError('auth.unauthenticated', 'ended', 401)));
+
+      expect(field('nameLatin').disabled).toBeTrue();
+      expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
+      expect(el().querySelector('button.retry')).not.toBeNull();
+    });
+
+    it('Retry resends the payload that failed, with its key, whatever a control was set to since', async () => {
+      const key = await failCreate();
+      const sent = submitter.calls.mostRecent().args[0];
+
+      formOf().get('nameLatin')?.setValue('Changed behind the lock');
+      formOf().get('strength')?.setValue('strong');
+      submitter.and.returnValue(of({ ok: true }));
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+
+      expect(submitter).toHaveBeenCalledTimes(2);
+      expect(submitter.calls.mostRecent().args[0]).toEqual(sent);
+      expect(submitter.calls.mostRecent().args[0].nameLatin).toBe('Sara Ali');
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+      expect(saved).toHaveBeenCalledTimes(1);
+      expect(drafts.load('add-person')).toBeNull();
+    });
+
+    it('a restored draft that carries a key comes back locked, and Retry sends it with that key', async () => {
+      const key = await failCreate();
+      fixture.destroy();
+
+      submitter.and.returnValue(of({ ok: true }));
+      create();
+
+      expect(field('nameLatin').value).toBe('Sara Ali');
+      expect(field('nameLatin').disabled).toBeTrue();
+      expect(el().querySelector('.locked-note')).not.toBeNull();
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+
+      expect(submitter.calls.mostRecent().args[0].nameLatin).toBe('Sara Ali');
+      expect(submitter.calls.mostRecent().args[0].strength).toBe('weak');
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+    });
+
+    it('a restored draft without a key is not locked', () => {
+      drafts.save('add-person', { nameLatin: 'Sara Ali', strength: 'weak' });
+
+      create();
+
+      expect(field('nameLatin').disabled).toBeFalse();
+      expect(el().querySelector('.locked-note')).toBeNull();
+    });
+
+    it('Start over, once confirmed, keeps the typed values editable and sends a new key', async () => {
+      const key = await failCreate();
+
+      await startOver('confirm');
+
+      expect(field('nameLatin').disabled).toBeFalse();
+      expect(field('nameLatin').value).toBe('Sara Ali');
+      expect(el().querySelector('.locked-note')).toBeNull();
+      expect(drafts.load('add-person')).toBeNull();
+
+      setText('nameLatin', 'Sara Ali Hassan');
+      submitter.and.returnValue(of({ ok: true }));
+      await submit();
+
+      expect(submitter.calls.mostRecent().args[0].nameLatin).toBe('Sara Ali Hassan');
+      expect(submitter.calls.mostRecent().args[1]).not.toBe(key);
+    });
+
+    it('Start over keeps the contacts and social links of the failed submission', async () => {
+      drafts.save('add-person', {
+        nameLatin: 'Sara Ali',
+        strength: 'weak',
+        contacts: [{ kind: 'phone', value: '01012345678' }],
+        socialLinks: [{ kind: 'linkedin', url: 'https://linkedin.com/in/sara' }],
+        idempotencyKey: 'restored-key-0123456789',
+      });
+      create();
+      expect(el().querySelector('.locked-note')).not.toBeNull();
+
+      await startOver('confirm');
+
+      expect((el().querySelector('.contacts input.contact-value') as HTMLInputElement).value).toBe('01012345678');
+      expect(el().querySelectorAll('.contacts input.contact-value').length).toBe(1);
+      const urls = Array.from(el().querySelectorAll<HTMLInputElement>('input')).map((i) => i.value);
+      expect(urls).toContain('https://linkedin.com/in/sara');
+
+      submitter.and.returnValue(of({ ok: true }));
+      await submit();
+      const sent = submitter.calls.mostRecent().args[0];
+      expect(sent.contacts).toEqual([{ kind: 'phone', value: '01012345678' }]);
+      expect(sent.socialLinks).toEqual([{ kind: 'linkedin', url: 'https://linkedin.com/in/sara' }]);
+    });
+
+    it('Start over that is cancelled keeps the form locked and the draft', async () => {
+      await failCreate();
+
+      await startOver('cancel');
+
+      expect(field('nameLatin').disabled).toBeTrue();
+      expect(drafts.load('add-person')).not.toBeNull();
+    });
+
+    it('says to start over when the server already took this key with other details', async () => {
+      await failCreate();
+      submitter.and.returnValue(
+        throwError(
+          () =>
+            new ApiError(
+              'idempotency_key_reused',
+              'This Idempotency-Key was already used with a different request.',
+              422,
+            ),
+        ),
+      );
+
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(alertText()).toContain('already received with different details');
+      expect(alertText()).not.toContain('Idempotency-Key');
+      expect(el().querySelector('button.start-over')).not.toBeNull();
+    });
+
+    it('does not lock an edit: it keeps its draft and stays editable', async () => {
+      submitter.and.returnValue(networkDown());
+      create({ mode: 'edit', draftKey: 'edit-person:7', initial: { nameAr: '', nameLatin: 'Omar' } });
+      setText('nameLatin', 'Omar Said');
+
+      await submit();
+
+      expect(drafts.load<PersonFormValue>('edit-person:7')?.nameLatin).toBe('Omar Said');
+      expect(field('nameLatin').disabled).toBeFalse();
+      expect(el().querySelector('.locked-note')).toBeNull();
+
+      setText('nameLatin', 'Omar Saeed');
+      submitter.and.returnValue(of({ ok: true }));
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+
+      expect(submitter.calls.mostRecent().args[0].nameLatin).toBe('Omar Saeed');
+      expect(saved).toHaveBeenCalledTimes(1);
+    });
+
+    it('a restored edit draft is not locked', async () => {
+      submitter.and.returnValue(networkDown());
+      create({ mode: 'edit', draftKey: 'edit-person:7', initial: { nameAr: '', nameLatin: 'Omar' } });
+      setText('nameLatin', 'Omar Said');
+      await submit();
+      fixture.destroy();
+
+      create({ mode: 'edit', draftKey: 'edit-person:7', initial: { nameAr: '', nameLatin: 'Omar' } });
+
+      expect(field('nameLatin').value).toBe('Omar Said');
+      expect(field('nameLatin').disabled).toBeFalse();
+    });
+  });
+
+  it('keeps Save disabled after a successful save, until the page moves on', async () => {
+    create();
+    setText('nameLatin', 'Sara Ali');
+    chooseStrength('weak');
+
+    await submit();
+    await submit();
+
+    expect(submitter).toHaveBeenCalledTimes(1);
+    expect((el().querySelector('button.save') as HTMLButtonElement).disabled).toBeTrue();
+  });
+
+  describe('text typed in a tag field but not added', () => {
+    function openMore(): void {
+      (el().querySelector('details.more summary') as HTMLElement).click();
+      fixture.detectChanges();
+    }
+
+    function typeTag(index: number, text: string): void {
+      const input = el().querySelectorAll('app-tag-input input')[index] as HTMLInputElement;
+      input.value = text;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+    }
+
+    it('is added on save when nothing else is needed (an industry)', async () => {
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      openMore();
+      typeTag(1, 'Banking');
+
+      await submit();
+
+      expect(submitter).toHaveBeenCalledTimes(1);
+      expect(submitter.calls.mostRecent().args[0].industries).toEqual(['Banking']);
+    });
+
+    it('blocks the save when a skill has no category, naming the text', async () => {
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      openMore();
+      typeTag(0, 'Python');
+
+      await submit();
+
+      expect(submitter).not.toHaveBeenCalled();
+      expect(el().querySelector('.pending-tag')?.textContent).toContain('Python');
+    });
+
+    it('cannot be typed after a failed create: the tag fields are locked until it goes through', async () => {
+      submitter.and.returnValue(throwError(() => new ApiError('network_error', 'down', 0)));
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      openMore();
+      typeTag(1, 'Banking');
+      await submit();
+      const key = submitter.calls.mostRecent().args[1];
+
+      const tagFields = Array.from(el().querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>(
+        'app-tag-input input, app-tag-input button, app-tag-input select',
+      ));
+      expect(tagFields.length).toBeGreaterThan(0);
+      expect(tagFields.every((f) => f.disabled)).toBeTrue();
+
+      submitter.and.returnValue(of({ ok: true }));
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+
+      expect(submitter).toHaveBeenCalledTimes(2);
+      expect(submitter.calls.mostRecent().args[0].industries).toEqual(['Banking']);
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+    });
+
+    it('is added on save when the skill has its category', async () => {
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      openMore();
+      typeTag(0, 'Python');
+      const category = el().querySelector('app-tag-input select.category') as HTMLSelectElement;
+      category.value = 'technical';
+      category.dispatchEvent(new Event('change'));
+
+      await submit();
+
+      expect(submitter.calls.mostRecent().args[0].skills).toEqual([
+        { label: 'Python', category: 'technical', level: null },
+      ]);
+    });
+  });
+
+  describe('a draft that belongs to someone (the contributor page)', () => {
+    async function failOnce(owner: string): Promise<void> {
+      submitter.and.returnValue(throwError(() => new ApiError('network_error', 'down', 0)));
+      create({ draftKey: 'contribute', draftOwner: owner, draftMaxAgeDays: 7, contributor: true });
+      setText('nameLatin', 'Hoda');
+      chooseStrength('weak');
+      await submit();
+      fixture.destroy();
+    }
+
+    it('records who it belongs to and when it was saved', async () => {
+      await failOnce('Sami');
+
+      const stored = drafts.load<Record<string, unknown>>('contribute');
+      expect(stored?.['draftOwner']).toBe('Sami');
+      expect(Date.now() - Date.parse(stored?.['savedAt'] as string)).toBeLessThan(60_000);
+    });
+
+    it('is restored for the same contributor', async () => {
+      await failOnce('Sami');
+
+      create({ draftKey: 'contribute', draftOwner: 'Sami', draftMaxAgeDays: 7, contributor: true });
+
+      expect(field('nameLatin').value).toBe('Hoda');
+    });
+
+    it('is dropped for another contributor', async () => {
+      await failOnce('Sami');
+
+      create({ draftKey: 'contribute', draftOwner: 'Karim', draftMaxAgeDays: 7, contributor: true });
+
+      expect(field('nameLatin').value).toBe('');
+      expect(drafts.load('contribute')).toBeNull();
+    });
+
+    it('is dropped once it is older than its maximum age', () => {
+      const eightDaysAgo = new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString();
+      drafts.save('contribute', { nameLatin: 'Hoda', draftOwner: 'Sami', savedAt: eightDaysAgo });
+
+      create({ draftKey: 'contribute', draftOwner: 'Sami', draftMaxAgeDays: 7, contributor: true });
+
+      expect(field('nameLatin').value).toBe('');
+      expect(drafts.load('contribute')).toBeNull();
+    });
+  });
+
+  it('restores the typed input when the page is reopened after an MFA step', async () => {
+    submitter.and.returnValue(
+      throwError(() => new ApiError('mfa_required', 'Multi-factor authentication is required.', 403)),
+    );
+    create();
+    setText('nameLatin', 'Sara Ali');
+    chooseStrength('weak');
+    await submit();
+    fixture.destroy();
+
+    create();
+
+    expect(field('nameLatin').value).toBe('Sara Ali');
+    expect(el().querySelector('.locked-note')).not.toBeNull();
+  });
+
+  it('restores a saved draft, and discarding it clears the form', async () => {
+    drafts.save('add-person', {
+      nameLatin: 'Sara Ali',
+      strength: 'weak',
+      contacts: [{ kind: 'phone', value: '0101' }],
+      skills: [{ label: 'Python', category: 'technical', level: 'good' }],
+    });
+    create();
+
+    expect(field('nameLatin').value).toBe('Sara Ali');
+    expect((el().querySelector('mat-radio-button[value="weak"] input') as HTMLInputElement).checked).toBeTrue();
+    expect((el().querySelector('details.more') as HTMLDetailsElement).open).toBeTrue();
+    expect((el().querySelector('.contacts input.contact-value') as HTMLInputElement).value).toBe('0101');
+    expect(el().textContent).toContain('Python');
+    expect(el().querySelector('.draft-note')).not.toBeNull();
+
+    (el().querySelector('button.discard') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(field('nameLatin').value).toBe('');
+    expect(drafts.load('add-person')).toBeNull();
+    expect(el().querySelector('.draft-note')).toBeNull();
+  });
+
+  it('does not save a draft on every keystroke', () => {
+    create();
+    setText('nameLatin', 'Sara');
+
+    expect(drafts.load('add-person')).toBeNull();
+  });
+
+  it('hides the contact picker button when the browser lacks the Contact Picker API', () => {
+    create();
+
+    expect(el().querySelector('button.pick-contact')).toBeNull();
+  });
+
+  it('fills name, phone and email from the picked contact', async () => {
+    Object.defineProperty(navigator, 'contacts', {
+      configurable: true,
+      value: {
+        select: () => Promise.resolve([{ name: ['Sara Ali'], tel: ['0101 234 5678'], email: ['s@example.com'] }]),
+      },
+    });
+    create();
+
+    (el().querySelector('button.pick-contact') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    chooseStrength('weak');
+    await submit();
+
+    const value = submitter.calls.mostRecent().args[0];
+    expect(value.nameLatin).toBe('Sara Ali');
+    expect(value.contacts).toEqual([
+      { kind: 'phone', value: '0101 234 5678' },
+      { kind: 'email', value: 's@example.com' },
+    ]);
+  });
+
+  it('in edit mode starts from the person and asks for no strength', async () => {
+    create({
+      mode: 'edit',
+      draftKey: 'edit-person:7',
+      initial: { nameAr: '', nameLatin: 'Omar', city: 'Cairo' },
+    });
+
+    expect(field('nameLatin').value).toBe('Omar');
+    expect(el().querySelector('mat-radio-button')).toBeNull();
+    expect((el().querySelector('details.more') as HTMLDetailsElement).open).toBeTrue();
+
+    await submit();
+
+    expect(submitter).toHaveBeenCalledTimes(1);
+  });
+
+  describe('contributor mode', () => {
+    it('hides the admin notes, the connection note and the Connected to picker, and keeps the strength', () => {
+      create({ contributor: true, draftKey: 'contribute' });
+
+      expect(field('adminNotes')).toBeNull();
+      expect(field('connectionNote')).toBeNull();
+      expect(el().querySelector('app-person-picker')).toBeNull();
+      expect(el().querySelector('mat-radio-group')).not.toBeNull();
+      expect(el().querySelector('.strength-help')?.textContent).toContain('Anyone you could message');
+      expect(el().querySelector('legend')?.textContent).not.toContain('Private notes');
+    });
+
+    it('still requires a strength', async () => {
+      create({ contributor: true, draftKey: 'contribute' });
+      setText('nameLatin', 'Sara Ali');
+
+      await submit();
+
+      expect(submitter).not.toHaveBeenCalled();
+      expect(el().textContent).toContain('Choose the connection strength.');
+    });
+
+    it('shows the admin fields by default', () => {
+      create();
+
+      expect(field('adminNotes')).not.toBeNull();
+      expect(el().querySelector('app-person-picker')).not.toBeNull();
+    });
+
+    it('takes tag suggestions from the given source instead of the admin /tags', async () => {
+      const source = jasmine.createSpy('suggestSource').and.returnValue(of([{ label: 'Design', category: null }]));
+      create({ contributor: true, draftKey: 'contribute', suggestSource: source });
+      (el().querySelector('details.more summary') as HTMLElement).click();
+      fixture.detectChanges();
+
+      const input = el().querySelector('app-tag-input input') as HTMLInputElement;
+      input.value = 'des';
+      input.dispatchEvent(new Event('input'));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      expect(source).toHaveBeenCalledWith('skill', 'des');
+    });
+  });
+});

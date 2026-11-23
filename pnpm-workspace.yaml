@@ -1,0 +1,12 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# pnpm 12 refuses to install when a dependency has an unreviewed build script. These four ship
+# prebuilt binaries for the Angular toolchain (apps/web); apps/web/pnpm-workspace.yaml repeats
+# the list for its own `--ignore-workspace` install.
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  lmdb: true
+  msgpackr-extract: true

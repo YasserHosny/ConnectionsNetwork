@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "connections-api"
+version = "0.1.0"
+description = "Connections Network FastAPI backend"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "psycopg[binary]>=3.2,<4",
+    "python-jose[cryptography]==3.3.0",
+    # Direct, not transitive: python-jose's ES256 verification needs it, and security-critical
+    # code should not depend on a transitive pin.
+    "cryptography>=44",
+    # jwks.py fetches the signing keys at runtime.
+    "httpx==0.28.1",
+    "slowapi==0.1.9",
+    # Direct, not transitive: scripts/bootstrap_admin.py imports it (load_dotenv).
+    "python-dotenv>=1.0,<2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.4",
+    "ruff",
+]
+
+[tool.uv]
+# Transitive floor, not a direct dependency: pyasn1 arrives via python-jose and rsa (as in PP).
+constraint-dependencies = ["pyasn1>=0.6.5"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/connections_api"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/connections_api",
+    "pyproject.toml",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ANN"]

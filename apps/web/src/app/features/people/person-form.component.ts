@@ -706,8 +706,10 @@ export class PersonFormComponent implements OnInit {
         if (confirmed !== true || !failed || this.busy()) return;
         this.drafts.clear(this.draftKey());
         this.idempotencyKey = null;
-        this.apply(failed.value);
+        // Unlock first: apply() rebuilds the contact and social-link rows, and the add-row
+        // helpers refuse to add rows to a locked form.
         this.unlock();
+        this.apply(failed.value);
         this.draftRestored.set(false);
         this.error.set(null);
         this.cdr.markForCheck();

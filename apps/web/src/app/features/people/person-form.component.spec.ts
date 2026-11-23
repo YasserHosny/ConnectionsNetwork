@@ -421,6 +421,31 @@ describe('PersonFormComponent', () => {
       expect(submitter.calls.mostRecent().args[1]).not.toBe(key);
     });
 
+    it('Start over keeps the contacts and social links of the failed submission', async () => {
+      drafts.save('add-person', {
+        nameLatin: 'Sara Ali',
+        strength: 'weak',
+        contacts: [{ kind: 'phone', value: '01012345678' }],
+        socialLinks: [{ kind: 'linkedin', url: 'https://linkedin.com/in/sara' }],
+        idempotencyKey: 'restored-key-0123456789',
+      });
+      create();
+      expect(el().querySelector('.locked-note')).not.toBeNull();
+
+      await startOver('confirm');
+
+      expect((el().querySelector('.contacts input.contact-value') as HTMLInputElement).value).toBe('01012345678');
+      expect(el().querySelectorAll('.contacts input.contact-value').length).toBe(1);
+      const urls = Array.from(el().querySelectorAll<HTMLInputElement>('input')).map((i) => i.value);
+      expect(urls).toContain('https://linkedin.com/in/sara');
+
+      submitter.and.returnValue(of({ ok: true }));
+      await submit();
+      const sent = submitter.calls.mostRecent().args[0];
+      expect(sent.contacts).toEqual([{ kind: 'phone', value: '01012345678' }]);
+      expect(sent.socialLinks).toEqual([{ kind: 'linkedin', url: 'https://linkedin.com/in/sara' }]);
+    });
+
     it('Start over that is cancelled keeps the form locked and the draft', async () => {
       await failCreate();
 

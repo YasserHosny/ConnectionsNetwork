@@ -25,6 +25,23 @@ printf '%s' "$SUPABASE_ANON_KEY" | grep -Eq '^[A-Za-z0-9._~+/=-]+$' ||
 printf '%s' "$BACKEND_HOST" | grep -Eq '^[A-Za-z0-9.-]+$' ||
     fail "BACKEND_HOST must be a host name"
 
+# TRUST_CDN_REAL_IP=true: take the visitor's address from X-Real-IP, whoever the peer is. Only
+# where bunny.net's CDN is the sole way in (the hosted app: its endpoint is the CDN, the API
+# container publishes no port) and its edge replaces any X-Real-IP a visitor sends (deploy
+# checklist step 10 checks that on hosted). Never where clients reach Nginx directly, such as
+# docker compose's published port: there it would let any client choose its rate-limit key.
+case "${TRUST_CDN_REAL_IP:-false}" in
+true)
+    printf '%s\n' 'set_real_ip_from 0.0.0.0/0;' 'set_real_ip_from ::/0;' 'real_ip_header X-Real-IP;'
+    ;;
+false)
+    printf '%s\n' "# TRUST_CDN_REAL_IP is not true: the client address is Nginx's peer."
+    ;;
+*)
+    fail "TRUST_CDN_REAL_IP must be true or false"
+    ;;
+esac >/etc/nginx/conf.d/real-ip.inc
+
 VARS='${BACKEND_HOST} ${SUPABASE_URL}'
 envsubst "$VARS" </etc/nginx/templates/default.conf.template >/etc/nginx/conf.d/default.conf
 envsubst "$VARS" </etc/nginx/templates/security-headers.inc.template >/etc/nginx/conf.d/security-headers.inc

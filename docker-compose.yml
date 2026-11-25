@@ -30,6 +30,8 @@ services:
       # Written to runtime-config.json and the CSP at container start (see infra/nginx/entrypoint.sh).
       SUPABASE_URL: ${SUPABASE_URL:?set SUPABASE_URL in .env}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?set SUPABASE_ANON_KEY in .env}
+      # Never true here: clients reach this Nginx directly, and could choose their rate-limit key.
+      TRUST_CDN_REAL_IP: "false"
     ports:
       - "4200:80"
     depends_on:

@@ -15,18 +15,24 @@ and is then answered with the same 404 as any other bad token.
 
 SlowAPI logs the bucket key when a limit is exceeded. The per-link key is therefore a hash of
 the token, and a domain-separated one: plain sha256(token) is what contributor_link.token_hash
-stores, which the contributor functions accept, so it must not reach a log line either.
+stores, which the contributor functions accept, so it must not reach a log line either. The
+per-address key is an HMAC of the address under a key made at process start: a visitor's address
+must not reach the log (the redactor misses short IPv4 and all IPv6 addresses), and a plain hash
+of an IPv4 address is reversed by trying all 2**32. The buckets live in this process's memory,
+so a key that changes on restart loses nothing.
 
 Behind a reverse proxy the remote address is the proxy's unless uvicorn trusts its forwarded
 headers (`--proxy-headers --forwarded-allow-ips`); the deployment must set that, or every
 contributor shares one per-IP budget. Nginx in turn must hand uvicorn the visitor, not its own
-peer (bunny.net's edge): it takes the visitor from the edge's X-Real-IP (infra/nginx/nginx.conf,
-checked by scripts/test-real-ip.sh).
+peer (bunny.net's edge): with TRUST_CDN_REAL_IP=true it takes the visitor from the edge's
+X-Real-IP (infra/nginx/nginx.conf, checked by scripts/test-real-ip.sh).
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
+import secrets
 from collections.abc import Callable
 from typing import Any
 
@@ -47,7 +53,16 @@ CONTRIBUTOR_IP_LIMIT = "60/minute"
 # The nightly keepalive calls it once; anything near this is not the keepalive.
 HEALTH_DB_LIMIT = "30/minute"
 
-limiter = Limiter(key_func=get_remote_address, key_style="endpoint")
+_ADDRESS_KEY = secrets.token_bytes(32)
+
+
+def client_address_key(request: Request) -> str:
+    """The rate-limit bucket of the client address. Never the address itself (it is logged)."""
+    address = get_remote_address(request)
+    return "addr:" + hmac.new(_ADDRESS_KEY, address.encode(), hashlib.sha256).hexdigest()
+
+
+limiter = Limiter(key_func=client_address_key, key_style="endpoint")
 
 
 def contributor_token_key(request: Request) -> str:

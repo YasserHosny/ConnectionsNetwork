@@ -9,7 +9,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test --watch=false --browsers=ChromeHeadless",
     "test:watch": "ng test",
-    "lint": "ng lint && node scripts/check-i18n-keys.mjs && node scripts/check-logical-css.mjs && node scripts/check-pwa.mjs"
+    "lint": "ng lint && node scripts/check-i18n-keys.mjs && node scripts/check-logical-css.mjs && node scripts/check-pwa.mjs && node scripts/check-icons.mjs"
   },
   "dependencies": {
     "@angular/cdk": "22.2.4",
@@ -22,7 +22,6 @@
     "@angular/router": "22.2.3",
     "@angular/service-worker": "22.2.3",
     "@ngx-translate/core": "^18.0.0",
-    "@ngx-translate/http-loader": "^18.0.0",
     "@supabase/supabase-js": "^2.105",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",

@@ -12,7 +12,7 @@ COPY apps/web/package.json apps/web/pnpm-lock.yaml ./
 RUN pnpm install --ignore-workspace --frozen-lockfile --config.strict-dep-builds=false
 
 # packages/ sits next to apps/web/: tsconfig paths reach ../../packages/domain-types and
-# ../../packages/i18n, and apps/web/i18n is a symlink to ../../packages/i18n (the catalogues).
+# ../../packages/i18n (the catalogues are bundled into the app from there).
 COPY packages/ /app/packages/
 COPY apps/web/ ./
 RUN pnpm exec ng build

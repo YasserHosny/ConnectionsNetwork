@@ -16,9 +16,13 @@ from psycopg import errors
 from psycopg.rows import dict_row
 
 from connections_api.errors import ConflictError, ForbiddenError, ValidationFailed
-from connections_api.modules.duplicates.schemas import DuplicatePair, PersonSummary
+from connections_api.modules.duplicates.schemas import (
+    DuplicateCheckRequest,
+    DuplicatePair,
+    PersonSummary,
+)
 from connections_api.modules.people import service as people
-from connections_api.modules.people.schemas import PersonOut
+from connections_api.modules.people.schemas import DuplicateHint, PersonOut
 
 type Conn = psycopg.Connection[Any]
 
@@ -118,3 +122,49 @@ def merge(conn: Conn, keep: UUID, drop: UUID) -> PersonOut:
     except errors.ObjectNotInPrerequisiteState as exc:
         raise CannotDropAccountError() from exc
     return people.get_person_or_404(conn, keep)
+
+
+def check(conn: Conn, network_id: UUID, body: DuplicateCheckRequest) -> list[DuplicateHint]:
+    """Who already has one of these values: the create response's hints, before anything is saved.
+
+    Same rules as the hints on create (`people._possible_duplicates`): normalized columns, phone and
+    WhatsApp in one normal form, and the hint names the kind typed. Read-only.
+    """
+    kinds = [c.kind for c in body.contacts]
+    values = [c.value for c in body.contacts]
+    urls = [link.url for link in body.social_links]
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            with typed (kind, value_norm) as (
+              select t.kind,
+                     case when t.kind = 'email' then public.normalize_email(t.value)
+                          else public.normalize_phone(t.value) end
+              from unnest(%(kinds)s::text[], %(values)s::text[]) as t (kind, value)
+            )
+            select p.id as person_id, p.name_ar, p.name_latin, typed.kind as matched_on,
+                   p.created_at
+            from typed
+            join contact_value other on other.network_id = %(network)s
+                                    and other.value_norm = typed.value_norm
+                                    and (other.kind = 'email') = (typed.kind = 'email')
+            join person p on p.network_id = other.network_id and p.id = other.person_id
+            where typed.value_norm is not null
+            union
+            select p.id, p.name_ar, p.name_latin, 'social_link', p.created_at
+            from unnest(%(urls)s::text[]) as u (url)
+            join social_link other on other.network_id = %(network)s
+                                  and other.url_norm = public.normalize_url(u.url)
+            join person p on p.network_id = other.network_id and p.id = other.person_id
+            order by created_at, person_id, matched_on
+            """,
+            {"kinds": kinds, "values": values, "urls": urls, "network": network_id},
+        ).fetchall()
+    return [
+        DuplicateHint(
+            person_id=r["person_id"],
+            display_name=people.display_name(r["name_ar"], r["name_latin"]),
+            matched_on=r["matched_on"],
+        )
+        for r in rows
+    ]

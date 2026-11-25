@@ -286,6 +286,12 @@ export interface DuplicatePair {
   matched_on: ('email' | 'phone' | 'social_link')[];
 }
 
+/** The identifying values typed into a quick add, checked before saving (`POST /duplicates/check`). */
+export interface DuplicateCheckRequest {
+  contacts: ContactInput[];
+  social_links: SocialLinkInput[];
+}
+
 export interface DismissRequest {
   a: Uuid;
   b: Uuid;

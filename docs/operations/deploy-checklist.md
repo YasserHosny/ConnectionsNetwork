@@ -370,12 +370,22 @@ queries travel there). In the bunny.net dashboard, for every pull zone or endpoi
 app: **turn logging off**, or, if you keep it, turn on log anonymisation and make sure query strings
 are not logged. Check with the `querycheck` request above: it must not appear in the edge log
 either. Also check that the
-API sees the real client address: the per-IP limit is only as good as it. Make 70 requests to a
-contributor endpoint from one machine (`/api/v1/contribute/tags?kind=skill&q=a`, a different made-up
-`X-Contributor-Token` each time, so the per-link budget of 30 a minute is not what trips); the 61st
-to the 70th must answer 429, and an unrelated machine must still get through. If every visitor shares
-one budget, bunny.net's edge address is what Nginx forwards, and Nginx needs `set_real_ip_from`
-for the edge ranges (`nginx.conf`).
+API sees the real client address: the per-address limit is only as good as it. Nginx takes the
+visitor from the `X-Real-IP` header bunny.net's edge sets, and never from `X-Forwarded-For`
+(`infra/nginx/nginx.conf`; `scripts/test-real-ip.sh` checks the chain locally and in CI). On hosted,
+check three things against a contributor endpoint (`/api/v1/contribute/tags?kind=skill&q=a`, a
+different made-up `X-Contributor-Token` on each request, so the per-link budget of 30 a minute is not
+what trips):
+
+- From one machine, 70 requests: the 61st to the 70th answer 429.
+- **Another address is not blocked meanwhile.** It must keep answering 404 while the first is over
+  its limit. Two GitHub-hosted runners in one throwaway workflow do this well (one sends requests
+  in a loop, the other one request every 5 s, each printing its public address). If the second
+  gets 429, every visitor behind an edge shares one budget: Nginx is keying on the edge.
+- **The header cannot be forged.** While the first machine is over its limit, one more request
+  from it with `-H 'X-Real-IP: 203.0.113.9'` must still answer 429. A 404 means the edge passed
+  the visitor's own `X-Real-IP` through, and anyone could reset their budget per request: undo
+  the `real_ip_header` lines in `nginx.conf` until that is understood.
 
 Last, the product smoke: sign in as the admin with TOTP, add a person, create a contributor link,
 use it in a private window. (Do not send a link to anyone else yet: step 11 comes first.)

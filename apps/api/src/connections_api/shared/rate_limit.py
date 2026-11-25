@@ -19,7 +19,9 @@ stores, which the contributor functions accept, so it must not reach a log line 
 
 Behind a reverse proxy the remote address is the proxy's unless uvicorn trusts its forwarded
 headers (`--proxy-headers --forwarded-allow-ips`); the deployment must set that, or every
-contributor shares one per-IP budget.
+contributor shares one per-IP budget. Nginx in turn must hand uvicorn the visitor, not its own
+peer (bunny.net's edge): it takes the visitor from the edge's X-Real-IP (infra/nginx/nginx.conf,
+checked by scripts/test-real-ip.sh).
 """
 
 from __future__ import annotations

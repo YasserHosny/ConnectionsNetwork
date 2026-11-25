@@ -298,6 +298,7 @@ Set these on the containers in the bunny.net app (never in the repository or in 
 | `connections-api` | `WEB_PUBLIC_URL` | the same public origin (contributor links are built from it) |
 | `connections-web` | `SUPABASE_URL` | `https://<ref>.supabase.co`: a bare origin, no path and no trailing slash |
 | `connections-web` | `SUPABASE_ANON_KEY` | the same publishable key |
+| `connections-web` | `TRUST_CDN_REAL_IP` | `true`: Nginx takes the visitor's address from the `X-Real-IP` header bunny.net's edge sets, so the per-address rate limits are per visitor. Only here, behind the CDN; unset (the default) Nginx uses its peer, which on bunny.net is the edge and puts all visitors in one budget. Step 10 checks it |
 | `connections-web` | `BACKEND_HOST` | `127.0.0.1` (the image default, so it may be left unset): both containers share one network in the app. Not `localhost`, which can resolve to `::1`, where uvicorn does not listen |
 
 Do not set `SUPABASE_JWT_SECRET` (hosted tokens are verified against the project's published signing
@@ -370,12 +371,30 @@ queries travel there). In the bunny.net dashboard, for every pull zone or endpoi
 app: **turn logging off**, or, if you keep it, turn on log anonymisation and make sure query strings
 are not logged. Check with the `querycheck` request above: it must not appear in the edge log
 either. Also check that the
-API sees the real client address: the per-IP limit is only as good as it. Make 70 requests to a
-contributor endpoint from one machine (`/api/v1/contribute/tags?kind=skill&q=a`, a different made-up
-`X-Contributor-Token` each time, so the per-link budget of 30 a minute is not what trips); the 61st
-to the 70th must answer 429, and an unrelated machine must still get through. If every visitor shares
-one budget, bunny.net's edge address is what Nginx forwards, and Nginx needs `set_real_ip_from`
-for the edge ranges (`nginx.conf`).
+API sees the real client address: the per-address limit is only as good as it. With
+`TRUST_CDN_REAL_IP=true` (step 9), Nginx takes the visitor from the `X-Real-IP` header bunny.net's
+edge sets, and never from `X-Forwarded-For` (`infra/nginx/nginx.conf`, `infra/nginx/entrypoint.sh`;
+`scripts/test-real-ip.sh` checks the chain locally and in CI). On hosted,
+check three things against a contributor endpoint (`/api/v1/contribute/tags?kind=skill&q=a`, a
+different made-up `X-Contributor-Token` on each request, so the per-link budget of 30 a minute is not
+what trips):
+
+- From one machine, 70 requests: the 61st to the 70th answer 429.
+- **Another address is not blocked meanwhile.** It must keep answering 404 while the first is over
+  its limit. Two GitHub-hosted runners in one throwaway workflow do this well (one sends requests
+  in a loop, the other one request every 5 s, each printing its public address and the `Server`
+  response header, which names the bunny.net edge server, e.g. `BunnyCDN-FR1-1072`). If the second
+  gets 429, every visitor behind an edge shares one budget: Nginx is keying on the edge. The check
+  only counts when both runners went through the **same** edge server: through different ones,
+  edge-keyed limits would also look separate. The baseline, before the fix (2026-11-25): two
+  runners on different addresses shared one budget.
+- **The header cannot be forged.** While the first machine is over its limit, one more request
+  from it with `-H 'X-Real-IP: 203.0.113.9'` must still answer 429. A 404 means the edge passed
+  the visitor's own `X-Real-IP` through, and anyone could reset their budget per request: set
+  `TRUST_CDN_REAL_IP=false` on the web container at once (step 9; the container restarts with it)
+  and leave it off until that is understood. To confirm the rollback, start over: the budget is now
+  keyed on the edge, so send a fresh burst until requests answer 429, then, within the same minute,
+  the request with the forged `X-Real-IP` must answer 429 too.
 
 Last, the product smoke: sign in as the admin with TOTP, add a person, create a contributor link,
 use it in a private window. (Do not send a link to anyone else yet: step 11 comes first.)

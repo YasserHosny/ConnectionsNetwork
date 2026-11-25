@@ -129,3 +129,12 @@ jobs:
         # Also generates the service worker from ngsw-config.json and enforces the bundle budgets.
         working-directory: apps/web
         run: pnpm exec ng build
+
+  nginx-real-ip:
+    name: Nginx passes the visitor's address
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Client address the API sees behind Nginx
+        # The per-address rate limits key on it; see the script's header.
+        run: scripts/test-real-ip.sh

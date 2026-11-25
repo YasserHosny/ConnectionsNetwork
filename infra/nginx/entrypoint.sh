@@ -25,6 +25,36 @@ printf '%s' "$SUPABASE_ANON_KEY" | grep -Eq '^[A-Za-z0-9._~+/=-]+$' ||
 printf '%s' "$BACKEND_HOST" | grep -Eq '^[A-Za-z0-9.-]+$' ||
     fail "BACKEND_HOST must be a host name"
 
+# TRUST_CDN_REAL_IP=true: the API is given the visitor's address from X-Real-IP, whoever the
+# peer is. Only where bunny.net's CDN is the sole way in (the hosted app: its endpoint is the
+# CDN, the API container publishes no port) and its edge replaces any X-Real-IP a visitor sends
+# (deploy checklist step 10 checks that on hosted). Never where clients reach Nginx directly,
+# such as docker compose's published port: there it would let any client choose its rate-limit
+# key. A value that is not a bare IPv4 or IPv6 address (a list, a port, junk) falls back to the
+# peer.
+case "${TRUST_CDN_REAL_IP:-false}" in
+true)
+    cat <<'EOF'
+map $http_x_real_ip $api_client {
+    "~^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$" $http_x_real_ip;
+    "~^(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f.]{0,15}$" $http_x_real_ip;
+    default $remote_addr;
+}
+EOF
+    ;;
+false)
+    cat <<'EOF'
+# TRUST_CDN_REAL_IP is not true: the client address is Nginx's peer.
+map $remote_addr $api_client {
+    default $remote_addr;
+}
+EOF
+    ;;
+*)
+    fail "TRUST_CDN_REAL_IP must be true or false"
+    ;;
+esac >/etc/nginx/conf.d/real-ip.inc
+
 VARS='${BACKEND_HOST} ${SUPABASE_URL}'
 envsubst "$VARS" </etc/nginx/templates/default.conf.template >/etc/nginx/conf.d/default.conf
 envsubst "$VARS" </etc/nginx/templates/security-headers.inc.template >/etc/nginx/conf.d/security-headers.inc

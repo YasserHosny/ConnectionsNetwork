@@ -1,0 +1,10 @@
+close
+contacts
+delete
+download
+fact_check
+link
+link_off
+logout
+person_add
+search

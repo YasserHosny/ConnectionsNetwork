@@ -258,6 +258,24 @@ describe('SearchPage', () => {
     expect(names).toEqual(['Ali', 'Basma']);
   });
 
+  it('says when it shows only the 50 closest people, so a broad search is narrowed', async () => {
+    await open('/search?q=a');
+    http
+      .expectOne((r) => r.url === '/api/v1/search')
+      .flush(Array.from({ length: 50 }, (_, i) => result({ person_id: `p${i}`, display_name: `P ${i}` })));
+    await settle();
+
+    expect(el().querySelector('.limit-note')?.textContent).toContain('Showing the 50 closest people');
+  });
+
+  it('says nothing about a limit when fewer people match', async () => {
+    await open('/search?q=a');
+    http.expectOne((r) => r.url === '/api/v1/search').flush([result()]);
+    await settle();
+
+    expect(el().querySelector('.limit-note')).toBeNull();
+  });
+
   it('shows a translated error, never the API text', async () => {
     await open('/search?q=seo');
     http

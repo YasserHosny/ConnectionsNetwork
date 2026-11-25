@@ -38,7 +38,7 @@ import type {
   TagKind,
   TagOut,
 } from '@connections/domain-types';
-import { type Observable, map } from 'rxjs';
+import { type Observable, debounceTime, map, tap } from 'rxjs';
 
 import { ApiClient, toApiError } from '../../core/api.client';
 import { IsolatePipe } from '../../core/bidi';
@@ -68,12 +68,15 @@ import { TagInputComponent } from './tag-input.component';
 
 const ARABIC_SCRIPT = /[؀-ۿ]/;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How long typing pauses before the entry is kept as a draft (not on every keystroke). */
+const TYPING_DRAFT_DELAY_MS = 800;
 
 /** What a draft stores besides the form value. */
 interface DraftMeta {
   /**
    * The Idempotency-Key of the submission that failed, so its retry is the same submission. A
-   * create's draft with a key is that exact submission: it is restored locked.
+   * create's draft with a key is that exact submission: it is restored locked. A draft kept while
+   * typing (nothing sent yet) has none and is restored editable.
    */
   idempotencyKey?: string;
   /** Whose draft it is (the contributor link's token digest), when the form is given a `draftOwner`. */
@@ -169,6 +172,39 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
           <p class="hint">{{ 'person.form.nameHint' | translate }}</p>
         }
       </section>
+
+      <!-- The number is what most people know about someone they just met: not under More details. -->
+      <fieldset class="rows contacts" formArrayName="contacts">
+        <legend>{{ 'person.form.contacts' | translate }}</legend>
+        @for (row of contacts.controls; track row; let i = $index) {
+          <div class="row" [formGroupName]="i">
+            <mat-form-field appearance="outline" subscriptSizing="dynamic" class="kind">
+              <mat-label>{{ 'person.form.kind' | translate }}</mat-label>
+              <select matNativeControl formControlName="kind">
+                @for (option of contactKinds; track option.value) {
+                  <option [value]="option.value">{{ option.labelKey | translate }}</option>
+                }
+              </select>
+            </mat-form-field>
+            <mat-form-field appearance="outline" subscriptSizing="dynamic" class="grow">
+              <mat-label>{{ 'person.form.contactValue' | translate }}</mat-label>
+              <input matInput dir="ltr" formControlName="value" autocomplete="off" class="contact-value" />
+            </mat-form-field>
+            <button
+              mat-icon-button
+              type="button"
+              [attr.aria-label]="'person.form.removeRow' | translate"
+              [disabled]="locked()"
+              (click)="contacts.removeAt(i)"
+            >
+              <mat-icon aria-hidden="true">delete</mat-icon>
+            </button>
+          </div>
+        }
+        <button mat-stroked-button type="button" class="add-row" [disabled]="locked()" (click)="addContact()">
+          {{ 'person.form.addContact' | translate }}
+        </button>
+      </fieldset>
 
       @if (mode() === 'add') {
         <fieldset class="strength">
@@ -302,37 +338,6 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
             </button>
           </fieldset>
 
-          <fieldset class="rows contacts" formArrayName="contacts">
-            <legend>{{ 'person.form.contacts' | translate }}</legend>
-            @for (row of contacts.controls; track row; let i = $index) {
-              <div class="row" [formGroupName]="i">
-                <mat-form-field appearance="outline" subscriptSizing="dynamic" class="kind">
-                  <mat-label>{{ 'person.form.kind' | translate }}</mat-label>
-                  <select matNativeControl formControlName="kind">
-                    @for (option of contactKinds; track option.value) {
-                      <option [value]="option.value">{{ option.labelKey | translate }}</option>
-                    }
-                  </select>
-                </mat-form-field>
-                <mat-form-field appearance="outline" subscriptSizing="dynamic" class="grow">
-                  <mat-label>{{ 'person.form.contactValue' | translate }}</mat-label>
-                  <input matInput dir="ltr" formControlName="value" autocomplete="off" class="contact-value" />
-                </mat-form-field>
-                <button
-                  mat-icon-button
-                  type="button"
-                  [attr.aria-label]="'person.form.removeRow' | translate"
-                  [disabled]="locked()"
-                  (click)="contacts.removeAt(i)"
-                >
-                  <mat-icon aria-hidden="true">delete</mat-icon>
-                </button>
-              </div>
-            }
-            <button mat-stroked-button type="button" class="add-row" [disabled]="locked()" (click)="addContact()">
-              {{ 'person.form.addContact' | translate }}
-            </button>
-          </fieldset>
 
           @if (!contributor()) {
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
@@ -508,9 +513,12 @@ export class PersonFormComponent implements OnInit {
   readonly initial = input<Partial<PersonFormValue> | null>(null);
   /**
    * Saves the value (the API call); its result is passed on through `saved`. The second argument
-   * is the submission's Idempotency-Key, for a create (an edit may ignore it).
+   * is the submission's Idempotency-Key, for a create (an edit may ignore it); the third is true
+   * when this resends a submission that may already have reached the server (Retry, or one
+   * restored after a reload), so the page can skip anything it does only before a first attempt.
    */
-  readonly submitter = input.required<(value: PersonFormValue, idempotencyKey: string) => Observable<unknown>>();
+  readonly submitter =
+    input.required<(value: PersonFormValue, idempotencyKey: string, retry: boolean) => Observable<unknown>>();
   readonly saved = output<unknown>();
   /**
    * A contributor adding people from their link (Task 16), not the admin: no private notes, no
@@ -537,6 +545,10 @@ export class PersonFormComponent implements OnInit {
   private idempotencyKey: string | null = null;
   /** The create that failed, exactly as it was sent: what Retry resends while `locked`. */
   private failedCreate: { value: PersonFormValue; idempotencyKey: string } | null = null;
+  /** The drafts' generation when the form opened: an explicit sign-out since then bumps it. */
+  private readonly openedGeneration = this.drafts.generation;
+  /** An edit not yet kept as a draft (the pause has not passed). */
+  private typedPending = false;
 
   protected readonly strengths = STRENGTH_OPTIONS;
   protected readonly seniorities = SENIORITY_OPTIONS;
@@ -612,6 +624,23 @@ export class PersonFormComponent implements OnInit {
       this.apply(this.startingValue());
     }
     this.moreOpen.set(hasOptionalValues(this.currentValue()));
+    // Leaving the page or reloading mid-entry (a call, a switch to copy a number) must not lose it:
+    // kept after a pause, and at once when the form goes away or the page unloads.
+    this.form.valueChanges
+      .pipe(
+        tap(() => (this.typedPending = true)),
+        debounceTime(TYPING_DRAFT_DELAY_MS),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(() => this.keepTypedDraft());
+    const flush = () => {
+      if (this.typedPending) this.keepTypedDraft();
+    };
+    window.addEventListener('pagehide', flush);
+    this.destroyRef.onDestroy(() => {
+      window.removeEventListener('pagehide', flush);
+      flush();
+    });
   }
 
   protected onToggle(event: Event): void {
@@ -669,7 +698,7 @@ export class PersonFormComponent implements OnInit {
     if (!this.commitPendingTags()) return;
     if (this.form.invalid) return;
     this.idempotencyKey ??= newIdempotencyKey();
-    this.send(this.currentValue(), this.idempotencyKey);
+    this.send(this.currentValue(), this.idempotencyKey, false);
   }
 
   /**
@@ -683,7 +712,7 @@ export class PersonFormComponent implements OnInit {
       return;
     }
     if (this.busy() || this.done()) return;
-    this.send(failed.value, failed.idempotencyKey);
+    this.send(failed.value, failed.idempotencyKey, true);
   }
 
   /**
@@ -726,13 +755,17 @@ export class PersonFormComponent implements OnInit {
     return !blocked;
   }
 
-  private send(value: PersonFormValue, key: string): void {
+  private send(value: PersonFormValue, key: string, retry: boolean): void {
     const generation = this.drafts.generation;
     this.busy.set(true);
     this.error.set(null);
+    // A create is kept with its key before it leaves: if the page reloads while it is in flight,
+    // the restored draft is that same submission (locked, retried with the key), not a new one.
+    this.typedPending = false;
+    if (this.mode() === 'add' && generation === this.openedGeneration) this.saveDraft(value, key);
     // Cancelled with the form: a save still pending when the page goes away must not write a
     // draft or emit afterwards.
-    this.submitter()(value, key)
+    this.submitter()(value, key, retry)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (result) => {
@@ -779,6 +812,10 @@ export class PersonFormComponent implements OnInit {
     const clearedSince = this.drafts.generation !== generation;
     const maybeSaved = message.retryable || sessionEnded;
     if (maybeSaved && !clearedSince) this.saveDraft(value, idempotencyKey);
+    // Refused, so nothing was created: the submission kept before sending becomes what was typed,
+    // editable, under no key. A draft the page removed meanwhile (a dead link) stays removed.
+    const keptBeforeSending = this.drafts.load<unknown>(this.draftKey()) !== null;
+    if (!maybeSaved && !clearedSince && !this.locked() && keptBeforeSending) this.saveDraft(value, null);
     // A create that may have gone through is locked to what was sent (once locked, it stays so
     // until it succeeds or the user starts over, whatever a later attempt answers).
     if (maybeSaved && this.mode() === 'add' && !this.locked()) this.lock(value, idempotencyKey);
@@ -786,8 +823,26 @@ export class PersonFormComponent implements OnInit {
     this.cdr.markForCheck();
   }
 
-  private saveDraft(value: PersonFormValue, idempotencyKey: string): void {
-    const meta: DraftMeta = { idempotencyKey, savedAt: new Date().toISOString() };
+  /**
+   * The entry as typed, kept under no key (restored editable). Not while a save is in flight, done
+   * or locked: those keep the draft of the submission itself. Typing back to the starting values
+   * leaves nothing to keep.
+   */
+  private keepTypedDraft(): void {
+    this.typedPending = false;
+    const signedOutSince = this.drafts.generation !== this.openedGeneration;
+    if (signedOutSince || this.busy() || this.done() || this.locked()) return;
+    const value = this.currentValue();
+    if (JSON.stringify(value) === JSON.stringify(this.startingValue())) {
+      this.drafts.clear(this.draftKey());
+      return;
+    }
+    this.saveDraft(value, null);
+  }
+
+  private saveDraft(value: PersonFormValue, idempotencyKey: string | null): void {
+    const meta: DraftMeta = { savedAt: new Date().toISOString() };
+    if (idempotencyKey !== null) meta.idempotencyKey = idempotencyKey;
     const owner = this.draftOwner();
     if (owner !== null) meta.draftOwner = owner;
     this.drafts.save(this.draftKey(), { ...value, ...meta });
@@ -820,11 +875,17 @@ export class PersonFormComponent implements OnInit {
     const exists = this.contacts.controls.some(
       (row) => row.controls.kind.value === kind && row.controls.value.value.trim() === value,
     );
-    if (!exists) this.addContact(kind, value);
+    if (exists) return;
+    const empty = this.contacts.controls.find((row) => row.controls.value.value.trim() === '');
+    if (empty) empty.setValue({ kind, value });
+    else this.addContact(kind, value);
   }
 
+  /** An add starts with one empty WhatsApp row (dropped on save when left blank). */
   private startingValue(): PersonFormValue {
-    return { ...emptyPersonFormValue(), ...(this.initial() ?? {}) };
+    const value = { ...emptyPersonFormValue(), ...(this.initial() ?? {}) };
+    if (this.mode() === 'add' && value.contacts.length === 0) value.contacts = [{ kind: 'whatsapp', value: '' }];
+    return value;
   }
 
   /** The form as plain data: what a draft stores and what `submitter` receives. */

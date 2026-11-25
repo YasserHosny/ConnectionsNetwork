@@ -21,7 +21,7 @@ export interface DeletePersonDialogData {
       <button mat-button type="button" class="dialog-cancel" [mat-dialog-close]="false" cdkFocusInitial>
         {{ 'person.view.deleteDialog.cancel' | translate }}
       </button>
-      <button mat-flat-button type="button" class="dialog-confirm" [mat-dialog-close]="true">
+      <button mat-flat-button type="button" class="dialog-confirm danger" [mat-dialog-close]="true">
         {{ 'person.view.deleteDialog.confirm' | translate }}
       </button>
     </mat-dialog-actions>

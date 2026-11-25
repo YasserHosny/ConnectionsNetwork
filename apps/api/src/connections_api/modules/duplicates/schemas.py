@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, model_validator
 
+from connections_api.modules.people.schemas import ContactInput, SocialLinkInput
+
 
 class PersonSummary(BaseModel):
     person_id: UUID
@@ -47,3 +49,14 @@ class MergeRequest(BaseModel):
         if self.keep == self.drop:
             raise ValueError("keep and drop must be two different people")
         return self
+
+
+class DuplicateCheckRequest(BaseModel):
+    """The identifying values typed into a quick add, checked before the person is saved.
+
+    A POST body, never a query string: contact values stay out of URLs and access logs. The lists
+    take what a create takes (`PersonInput`), so no create skips the check for being too long.
+    """
+
+    contacts: list[ContactInput] = []
+    social_links: list[SocialLinkInput] = []

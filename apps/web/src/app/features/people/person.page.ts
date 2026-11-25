@@ -83,6 +83,12 @@ const PATH_COUNT = 4;
       }
       @case ('ready') {
         @if (person(); as p) {
+          @if (justAdded()) {
+            <p class="just-added" role="status">
+              <span>{{ 'person.saved' | translate: { name: (p.display_name | isolate) } }}</span>
+              <a mat-stroked-button routerLink="/add">{{ 'person.duplicates.addAnother' | translate }}</a>
+            </p>
+          }
           <header class="header">
             <h1>{{ p.display_name }}</h1>
             @if (p.name_ar && p.name_latin) {
@@ -103,7 +109,7 @@ const PATH_COUNT = 4;
             <button mat-stroked-button type="button" class="confirm" [disabled]="busy()" (click)="confirm()">
               {{ (busy() === 'confirm' ? 'person.view.confirming' : 'person.view.confirm') | translate }}
             </button>
-            <button mat-stroked-button type="button" class="delete" [disabled]="busy()" (click)="remove()">
+            <button mat-stroked-button type="button" class="delete danger" [disabled]="busy()" (click)="remove()">
               {{ (busy() === 'delete' ? 'person.view.deleting' : 'person.view.delete') | translate }}
             </button>
           </div>
@@ -279,6 +285,17 @@ const PATH_COUNT = 4;
     }
   `,
   styles: `
+    .just-added {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 16px;
+      margin-block: 0 16px;
+      padding: 8px 16px;
+      border-radius: 12px;
+      background: var(--mat-sys-secondary-container);
+      color: var(--mat-sys-on-secondary-container);
+    }
     :host {
       display: block;
       max-inline-size: 1100px;
@@ -322,6 +339,10 @@ const PATH_COUNT = 4;
       gap: 8px;
       margin-block: 16px 8px;
     }
+    /* Away from Edit and Confirm, so a quick tap never lands on it by mistake. */
+    .actions .delete {
+      margin-inline-start: auto;
+    }
     .error {
       color: var(--mat-sys-error);
     }
@@ -329,6 +350,12 @@ const PATH_COUNT = 4;
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       gap: 8px 32px;
+    }
+    /* One column on a phone: the path (who introduces me) comes before the profile details. */
+    @media (max-width: 719px) {
+      .network {
+        order: -1;
+      }
     }
     .chips,
     .links,
@@ -447,6 +474,8 @@ export class PersonPage {
       .join(' · ');
   });
 
+  protected readonly justAdded = signal(false);
+
   constructor() {
     inject(ActivatedRoute)
       .paramMap.pipe(
@@ -456,6 +485,8 @@ export class PersonPage {
       )
       .subscribe((id) => {
         this.id.set(id);
+        // Arrived from a quick add: offer the next one (not after a reload, or opening it later).
+        this.justAdded.set(this.router.currentNavigation()?.extras.state?.['justAdded'] === true);
         this.load();
       });
   }
@@ -573,6 +604,7 @@ export class PersonPage {
       bodyKey: 'person.view.removeConnectionDialog.body',
       confirmKey: 'person.view.removeConnectionDialog.confirm',
       params: { name: isolate(connection.display_name) },
+      destructive: true,
     };
     this.dialog
       .open(ConfirmDialog, { data })

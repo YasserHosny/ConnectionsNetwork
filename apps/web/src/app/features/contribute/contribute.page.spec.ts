@@ -475,7 +475,7 @@ describe('ContributePage', () => {
     await settle();
   });
 
-  it('too many requests says to wait a minute and keeps no draft', async () => {
+  it('too many requests says to wait a minute and keeps nothing to retry', async () => {
     await open();
 
     await fillAndSubmit();
@@ -487,7 +487,8 @@ describe('ContributePage', () => {
 
     expect(text()).toContain('Too many tries. Wait a minute, then try again.');
     expect(text()).not.toContain('Rate limit exceeded');
-    expect(drafts.load('contribute')).toBeNull();
+    // What was typed may stay as an editable draft; not as a submission to resend with its key.
+    expect(drafts.load<{ idempotencyKey?: string }>('contribute')?.idempotencyKey).toBeUndefined();
     expect(el().querySelector('form')).not.toBeNull();
   });
 

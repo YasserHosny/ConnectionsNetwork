@@ -26,6 +26,7 @@ import {
   hasContactValue,
   toApiParams,
   toUrlParams,
+  RESULT_LIMIT,
 } from './search-query';
 
 type Outcome =
@@ -143,6 +144,9 @@ type Outcome =
       } @else if (searched()) {
         @if (results().length) {
           <p class="count">{{ 'search.resultsCount' | translate: { count: results().length } }}</p>
+          @if (results().length >= resultLimit) {
+            <p class="limit-note">{{ 'search.limitReached' | translate: { count: resultLimit } }}</p>
+          }
           <ul class="results">
             @for (result of results(); track result.person_id) {
               <li><app-result-card [result]="result" /></li>
@@ -201,6 +205,7 @@ type Outcome =
       list-style: none;
     }
     .count,
+    .limit-note,
     .idle,
     .no-results,
     .loading,
@@ -225,6 +230,8 @@ export class SearchPage {
   protected readonly form = inject(FormBuilder).nonNullable.group({ ...EMPTY_FILTERS });
 
   protected readonly results = signal<SearchResult[]>([]);
+  /** The API returns at most this many, closest first; a full page says so. */
+  protected readonly resultLimit = RESULT_LIMIT;
   protected readonly loading = signal(false);
   /** True once a search has answered, so "no results" is not shown before anything was asked. */
   protected readonly searched = signal(false);

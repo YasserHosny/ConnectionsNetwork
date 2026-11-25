@@ -342,6 +342,98 @@ def test_duplicates_require_the_admin(
     )
 
 
+# -- check before saving (quick add) -------------------------------------------------------------
+
+
+def check(client: TestClient, **body: object) -> Response:
+    return client.post(
+        "/api/v1/duplicates/check", json={"contacts": [], "social_links": [], **body}
+    )
+
+
+def test_check_finds_who_shares_a_number_email_or_link_before_anything_is_saved(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    sara = person(conn, network, "Sara Ali")
+    contact(conn, network, sara, "phone", "+20 10 1234 5678")
+    omar = person(conn, network, "Omar Nabil")
+    contact(conn, network, omar, "email", "Omar@Example.com")
+    lina = person(conn, network, "Lina Fawzy")
+    social(conn, network, lina, "linkedin", "https://www.linkedin.com/in/lina/")
+    before = rows(conn, "select count(*) from person where network_id = %s", network.network_id)
+
+    response = check(
+        client,
+        contacts=[
+            {"kind": "whatsapp", "value": "01012345678"},
+            {"kind": "email", "value": "omar@example.com"},
+        ],
+        social_links=[{"kind": "linkedin", "url": "https://linkedin.com/in/lina"}],
+    )
+
+    assert response.status_code == 200
+    assert sorted((h["display_name"], h["matched_on"]) for h in response.json()) == [
+        ("Lina Fawzy", "social_link"),
+        ("Omar Nabil", "email"),
+        ("Sara Ali", "whatsapp"),
+    ]
+    assert (
+        rows(conn, "select count(*) from person where network_id = %s", network.network_id)
+        == before
+    )
+
+
+def test_check_ignores_other_networks_different_values_and_an_email_that_looks_like_a_number(
+    client: TestClient,
+    network: NetworkFixture,
+    other_network: NetworkFixture,
+    conn: psycopg.Connection[Any],
+) -> None:
+    stranger = person(conn, other_network, "Stranger")
+    contact(conn, other_network, stranger, "phone", "01012345678")
+    mine = person(conn, network, "Mine")
+    contact(conn, network, mine, "phone", "01099999999")
+    # "1234" normalizes to "1234" as a phone and as an email: only the kind keeps them apart.
+    short = person(conn, network, "Short number")
+    contact(conn, network, short, "phone", "1234")
+
+    response = check(
+        client,
+        contacts=[
+            {"kind": "phone", "value": "01012345678"},
+            {"kind": "email", "value": "1234"},
+        ],
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_check_takes_as_many_values_as_a_create_does(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    sara = person(conn, network, "Sara Ali")
+    contact(conn, network, sara, "phone", "01012345678")
+    many = [{"kind": "email", "value": f"p{i}@example.com"} for i in range(30)]
+
+    response = check(client, contacts=[*many, {"kind": "phone", "value": "01012345678"}])
+
+    assert response.status_code == 200
+    assert [h["display_name"] for h in response.json()] == ["Sara Ali"]
+
+
+def test_check_is_for_the_admin_only(
+    network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    member = make_member(conn, network)
+    anonymous = TestClient(create_app())
+    as_member = TestClient(create_app(), headers={"Authorization": f"Bearer {token_for(member)}"})
+    body = {"contacts": [{"kind": "phone", "value": "0101"}], "social_links": []}
+
+    assert anonymous.post("/api/v1/duplicates/check", json=body).status_code == 401
+    assert as_member.post("/api/v1/duplicates/check", json=body).status_code == 403
+
+
 # -- merge --------------------------------------------------------------------------------------
 
 

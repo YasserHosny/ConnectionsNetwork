@@ -81,6 +81,9 @@ export function personErrorMessage(error: ApiError): PersonErrorMessage {
       return validationMessage(error);
     case 'conflict':
       return message('person.errors.alreadyConnected');
+    // Raised by the add page itself before saving (someone already has a typed number or link).
+    case 'possible_duplicates':
+      return message('person.errors.possibleDuplicates');
     case 'not_found':
       return message('person.errors.notFound');
     case 'mfa_required':

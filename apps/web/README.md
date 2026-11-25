@@ -36,9 +36,9 @@ src/app/
 
 Shared code lives outside the app: `packages/i18n` (en.json, ar.json, locale constants) and
 `packages/domain-types` (TypeScript mirrors of the API schemas), both reached through the
-`@connections/*` path aliases in `tsconfig.json`. The catalogues are served from `/assets/i18n/`
-through the `i18n -> ../../packages/i18n` symlink, because Angular only copies assets from inside
-the workspace root of the app. A Docker build must therefore copy `packages/` next to `apps/web/`.
+`@connections/*` path aliases in `tsconfig.json`. Both catalogues are bundled into the app
+(`core/translations.ts`), so no label depends on a fetch at runtime. A Docker build must therefore
+copy `packages/` next to `apps/web/`.
 
 ## Conventions
 

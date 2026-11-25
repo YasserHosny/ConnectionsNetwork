@@ -37,11 +37,39 @@ h1 {
   font: var(--mat-sys-headline-small);
 }
 
-// Material Symbols Outlined (index.html), set as the default icon font for <mat-icon>.
+// Actions that delete or end something (delete, merge, revoke, remove a connection) use the
+// error colour, so they never look like Save or Confirm beside them.
+.mat-mdc-button-base.danger {
+  --mat-button-filled-container-color: var(--mat-sys-error);
+  --mat-button-filled-label-text-color: var(--mat-sys-on-error);
+  --mat-button-filled-state-layer-color: var(--mat-sys-on-error);
+  --mat-button-filled-ripple-color: color-mix(in srgb, var(--mat-sys-on-error) 12%, transparent);
+  --mat-button-outlined-label-text-color: var(--mat-sys-error);
+  --mat-button-outlined-outline-color: var(--mat-sys-error);
+  --mat-button-outlined-state-layer-color: var(--mat-sys-error);
+  --mat-button-outlined-ripple-color: color-mix(in srgb, var(--mat-sys-error) 12%, transparent);
+}
+
+// Material Symbols Outlined, self-hosted and cut down to the icons the app uses
+// (scripts/subset-icons.sh; check-icons.mjs in lint keeps the list complete). Block, so a
+// ligature never flashes as its name. Set as the default icon font for <mat-icon>.
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/fonts/material-symbols-outlined.woff2') format('woff2');
+}
+
+// The class rules Google's icon stylesheet used to bring (size, block, no wrapping): without the
+// font-size an icon inherits its parent's text size (the bottom nav's 0.75rem).
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined';
   font-weight: normal;
   font-style: normal;
+  font-size: 24px;
+  display: inline-block;
+  word-wrap: normal;
   line-height: 1;
   letter-spacing: normal;
   text-transform: none;

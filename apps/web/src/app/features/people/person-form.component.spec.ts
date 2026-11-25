@@ -19,7 +19,7 @@ const AR_STRENGTH_HELP = 'أي حد تقدر تبعتله رسالة وهو يع
 describe('PersonFormComponent', () => {
   let fixture: ComponentFixture<PersonFormComponent>;
   let drafts: DraftStore;
-  let submitter: jasmine.Spy<(value: PersonFormValue, idempotencyKey: string) => Observable<unknown>>;
+  let submitter: jasmine.Spy<(value: PersonFormValue, idempotencyKey: string, retry: boolean) => Observable<unknown>>;
   let saved: jasmine.Spy;
 
   const el = () => fixture.nativeElement as HTMLElement;
@@ -179,17 +179,51 @@ describe('PersonFormComponent', () => {
       expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara Ali');
     });
 
-    it('is cancelled when the form is destroyed: no draft, no saved event', async () => {
+    it('is cancelled when the form is destroyed: nothing written afterwards, no saved event', async () => {
       const pending = pendingSave();
       await submit();
+      const before = localStorage.getItem('connections.draft.add-person');
 
       fixture.destroy();
       expect(pending.observed).toBeFalse();
       pending.error(new ApiError('network_error', 'down', 0));
 
-      expect(drafts.load('add-person')).toBeNull();
+      expect(localStorage.getItem('connections.draft.add-person')).toBe(before);
       expect(saved).not.toHaveBeenCalled();
     });
+
+    it('is kept with its key before it is sent, so a reload while it is in flight retries it', async () => {
+      pendingSave();
+      await submit();
+      const key = submitter.calls.mostRecent().args[1];
+
+      expect(drafts.load<{ idempotencyKey?: string }>('add-person')?.idempotencyKey).toBe(key);
+
+      fixture.destroy();
+      submitter.and.returnValue(of({ ok: true }));
+      create();
+      expect(field('nameLatin').disabled).toBeTrue();
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+      await fixture.whenStable();
+
+      expect(submitter.calls.mostRecent().args[1]).toBe(key);
+      expect(submitter.calls.mostRecent().args[2]).toBeTrue();
+    });
+  });
+
+  it('tells the submitter a first attempt from a retry of the same submission', async () => {
+    submitter.and.returnValue(throwError(() => new ApiError('network_error', 'down', 0)));
+    create();
+    setText('nameLatin', 'Sara Ali');
+    chooseStrength('weak');
+    await submit();
+    expect(submitter.calls.mostRecent().args[2]).toBeFalse();
+
+    submitter.and.returnValue(of({ ok: true }));
+    (el().querySelector('button.retry') as HTMLButtonElement).click();
+    await fixture.whenStable();
+
+    expect(submitter.calls.mostRecent().args[2]).toBeTrue();
   });
 
   it('saves a draft on a server error too', async () => {
@@ -729,6 +763,36 @@ describe('PersonFormComponent', () => {
 
       expect(saved).toHaveBeenCalled();
       expect(drafts.load('add-person')).toBeNull();
+    }));
+
+    it('is not written back after an explicit sign-out cleared the drafts', fakeAsync(() => {
+      create();
+      setText('nameLatin', 'Sara');
+
+      drafts.clearAll(); // what AuthService.signOut() does, before the page goes away
+      tick(1000);
+      fixture.destroy();
+
+      expect(drafts.load('add-person')).toBeNull();
+    }));
+
+    it('keeps the last edit when the form goes away before the pause', fakeAsync(() => {
+      create();
+      setText('nameLatin', 'Sara');
+
+      fixture.destroy();
+
+      expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara');
+    }));
+
+    it('keeps the last edit when the page is being unloaded (a reload)', fakeAsync(() => {
+      create();
+      setText('nameLatin', 'Sara');
+
+      window.dispatchEvent(new Event('pagehide'));
+
+      expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara');
+      fixture.destroy();
     }));
 
     it('leaves no draft when everything typed is cleared again', fakeAsync(() => {

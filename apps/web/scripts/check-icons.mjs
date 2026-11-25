@@ -2,14 +2,33 @@
 // Fails when the app uses a Material Symbols icon that the self-hosted subset font lacks
 // (public/fonts/material-symbols-outlined.woff2, built by subset-icons.sh from material-icons.txt).
 // Without this check a new icon would render as its name ("search", "link_off") in production.
+// The font itself is read: subset-icons.sh writes the icons it kept into the WOFF2 metadata block,
+// so a list edited without rebuilding the font fails here too.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { brotliDecompressSync } from 'node:zlib';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const subset = new Set(
-  readFileSync(join(root, 'scripts', 'material-icons.txt'), 'utf8').split('\n').map((l) => l.trim()).filter(Boolean),
-);
+const words = (text) => new Set(text.split(/[\s,]+/).map((w) => w.trim()).filter(Boolean));
+const listed = words(readFileSync(join(root, 'scripts', 'material-icons.txt'), 'utf8'));
+
+/** The icons recorded in the WOFF2 metadata block (header: metaOffset at 28, metaLength at 32). */
+function iconsInFont(file) {
+  const font = readFileSync(file);
+  if (font.toString('latin1', 0, 4) !== 'wOF2') throw new Error(`${file} is not a WOFF2 font`);
+  const offset = font.readUInt32BE(28);
+  const length = font.readUInt32BE(32);
+  if (!offset || !length) return new Set();
+  const xml = brotliDecompressSync(font.subarray(offset, offset + length)).toString('utf8');
+  return words(/icons:([^<]*)/.exec(xml)?.[1] ?? '');
+}
+const subset = iconsInFont(join(root, 'public', 'fonts', 'material-symbols-outlined.woff2'));
+const stale = [...listed].filter((name) => !subset.has(name));
+if (stale.length) {
+  console.error(`the font lacks ${stale.join(', ')} from scripts/material-icons.txt: run scripts/subset-icons.sh.`);
+  process.exit(1);
+}
 
 function* sources(dir) {
   for (const name of readdirSync(dir)) {
@@ -29,7 +48,7 @@ for (const file of sources(join(root, 'src', 'app'))) {
 
 const missing = [...used].filter(([name]) => !subset.has(name));
 if (missing.length) {
-  for (const [name, file] of missing) console.error(`icon "${name}" (${file.slice(root.length + 1)}) is not in scripts/material-icons.txt`);
+  for (const [name, file] of missing) console.error(`icon "${name}" (${file.slice(root.length + 1)}) is not in the subset font`);
   console.error('Add it there and run scripts/subset-icons.sh.');
   process.exit(1);
 }

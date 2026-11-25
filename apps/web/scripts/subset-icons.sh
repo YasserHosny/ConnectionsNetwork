@@ -2,6 +2,7 @@
 # Rebuilds public/fonts/material-symbols-outlined.woff2: Material Symbols Outlined at the axes the
 # app uses (FILL 0, GRAD 0, opsz 24, wght 400), cut down to the icons in material-icons.txt (a few
 # KB instead of 4 MB). Run it after adding an icon; check-icons.mjs fails lint until you do.
+# The icons kept are recorded in the font's metadata block, which check-icons.mjs reads.
 # Needs npm and uv (fontTools runs in a throwaway environment).
 set -euo pipefail
 
@@ -18,6 +19,7 @@ uv run --quiet --with fonttools --with brotli python - "$tmp/package/material-sy
 import sys
 from fontTools.subset import Options, Subsetter
 from fontTools.ttLib import TTFont
+from fontTools.ttLib.woff2 import WOFF2FlavorData
 from fontTools.varLib.instancer import instantiateVariableFont
 
 source, out, *icons = sys.argv[1:]
@@ -31,6 +33,9 @@ options.flavor = "woff2"
 subsetter = Subsetter(options)
 subsetter.populate(glyphs=icons + [cmap[ord(c)] for c in chars if ord(c) in cmap], unicodes=[ord(c) for c in chars])
 subsetter.subset(font)
+# The icons kept, in the WOFF2 metadata block: check-icons.mjs reads them from the shipped font.
+font.flavorData = WOFF2FlavorData()
+font.flavorData.metaData = f'<?xml version="1.0" encoding="UTF-8"?><metadata version="1.0"><description><text lang="en">icons:{",".join(icons)}</text></description></metadata>'.encode()
 font.save(out)
 print(f"{out}: {len(icons)} icons")
 PY

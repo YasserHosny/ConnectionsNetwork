@@ -393,17 +393,33 @@ def test_check_ignores_other_networks_different_values_and_an_email_that_looks_l
     contact(conn, other_network, stranger, "phone", "01012345678")
     mine = person(conn, network, "Mine")
     contact(conn, network, mine, "phone", "01099999999")
+    # "1234" normalizes to "1234" as a phone and as an email: only the kind keeps them apart.
+    short = person(conn, network, "Short number")
+    contact(conn, network, short, "phone", "1234")
 
     response = check(
         client,
         contacts=[
             {"kind": "phone", "value": "01012345678"},
-            {"kind": "email", "value": "x@example.com"},
+            {"kind": "email", "value": "1234"},
         ],
     )
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_check_takes_as_many_values_as_a_create_does(
+    client: TestClient, network: NetworkFixture, conn: psycopg.Connection[Any]
+) -> None:
+    sara = person(conn, network, "Sara Ali")
+    contact(conn, network, sara, "phone", "01012345678")
+    many = [{"kind": "email", "value": f"p{i}@example.com"} for i in range(30)]
+
+    response = check(client, contacts=[*many, {"kind": "phone", "value": "01012345678"}])
+
+    assert response.status_code == 200
+    assert [h["display_name"] for h in response.json()] == ["Sara Ali"]
 
 
 def test_check_is_for_the_admin_only(

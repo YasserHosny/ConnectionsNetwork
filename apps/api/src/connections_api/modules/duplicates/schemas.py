@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
 
 from connections_api.modules.people.schemas import ContactInput, SocialLinkInput
 
@@ -54,8 +54,9 @@ class MergeRequest(BaseModel):
 class DuplicateCheckRequest(BaseModel):
     """The identifying values typed into a quick add, checked before the person is saved.
 
-    A POST body, never a query string: contact values stay out of URLs and access logs.
+    A POST body, never a query string: contact values stay out of URLs and access logs. The lists
+    take what a create takes (`PersonInput`), so no create skips the check for being too long.
     """
 
-    contacts: list[ContactInput] = Field(default=[], max_length=20)
-    social_links: list[SocialLinkInput] = Field(default=[], max_length=20)
+    contacts: list[ContactInput] = []
+    social_links: list[SocialLinkInput] = []

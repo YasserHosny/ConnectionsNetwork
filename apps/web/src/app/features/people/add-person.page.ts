@@ -5,7 +5,7 @@ import { TranslatePipe } from '@ngx-translate/core';
 import type { CreatePersonResponse, DuplicateCheckRequest, DuplicateHint } from '@connections/domain-types';
 import { type Observable, catchError, of, switchMap, throwError } from 'rxjs';
 
-import { ApiClient, ApiError } from '../../core/api.client';
+import { ApiClient, ApiError, toApiError } from '../../core/api.client';
 import { AuthService } from '../../core/auth.service';
 import { IsolatePipe } from '../../core/bidi';
 import { MATCHED_ON_KEYS, type PersonFormValue, toNewPersonRequest } from './person-form.model';
@@ -64,7 +64,7 @@ import { PersonFormComponent } from './person-form.component';
           <a mat-flat-button class="open-person" [routerLink]="['/people', result.person.id]">
             {{ 'person.duplicates.openPerson' | translate }}
           </a>
-          <button mat-stroked-button type="button" (click)="created.set(null)">
+          <button mat-stroked-button type="button" class="add-another" (click)="startAnother()">
             {{ 'person.duplicates.addAnother' | translate }}
           </button>
         </div>
@@ -122,6 +122,7 @@ export class AddPersonPage {
   protected readonly submit = (
     value: PersonFormValue,
     idempotencyKey: string,
+    retry: boolean,
   ): Observable<CreatePersonResponse> => {
     // The admin's own person comes from the session's `person_id` claim.
     const adminPersonId = this.auth.personId();
@@ -135,11 +136,19 @@ export class AddPersonPage {
       social_links: request.person.social_links ?? [],
     };
     const signature = JSON.stringify(typed);
-    if ((!typed.contacts.length && !typed.social_links.length) || signature === this.warnedFor) {
+    // A retry resends a create that may already exist under its key: checking again would only find
+    // that person. Nothing typed to check, or the same values already warned about: save.
+    if (retry || (!typed.contacts.length && !typed.social_links.length) || signature === this.warnedFor) {
       return create();
     }
     return this.api.post<DuplicateHint[]>('/duplicates/check', typed).pipe(
-      catchError(() => of<DuplicateHint[]>([])),
+      // A check that fails never blocks the save, except when the session ended or its MFA step
+      // lapsed: then the form must keep the entry while ApiClient sends the admin to sign in.
+      catchError((failure: unknown) => {
+        const error = toApiError(failure);
+        if (error.status === 401 || error.code === 'mfa_required') return throwError(() => failure);
+        return of<DuplicateHint[]>([]);
+      }),
       switchMap((hints) => {
         this.precheckHints.set(hints);
         if (!hints.length) return create();
@@ -148,6 +157,13 @@ export class AddPersonPage {
       }),
     );
   };
+
+  /** A fresh form for the next person: the last one's warning and its confirmation do not carry over. */
+  protected startAnother(): void {
+    this.created.set(null);
+    this.precheckHints.set([]);
+    this.warnedFor = null;
+  }
 
   protected matchedOnKey(matchedOn: string): string {
     return MATCHED_ON_KEYS[matchedOn] ?? 'person.duplicates.matchedOn.phone';

@@ -211,6 +211,69 @@ describe('AddPersonPage', () => {
       expect(navigate).toHaveBeenCalledWith('/people/new-1', { state: { justAdded: true } });
     });
 
+    it('forgets the warning and its confirmation when another person is started', async () => {
+      open();
+      typeNumber('0101 234 5678');
+      fillAndSubmit();
+      http.expectOne('/api/v1/duplicates/check').flush([
+        { person_id: 'old-1', display_name: 'Sara A.', matched_on: 'whatsapp' },
+      ]);
+      await settle();
+      el().querySelector('form')?.dispatchEvent(new Event('submit'));
+      http
+        .expectOne('/api/v1/people')
+        .flush(createdPerson('new-1', [{ person_id: 'old-1', display_name: 'Sara A.', matched_on: 'whatsapp' }]));
+      await settle();
+
+      (el().querySelector('button.add-another') as HTMLButtonElement).click();
+      await settle();
+      expect(el().querySelector('.precheck')).toBeNull();
+
+      typeNumber('0101 234 5678');
+      fillAndSubmit();
+      http.expectOne('/api/v1/duplicates/check').flush([
+        { person_id: 'old-1', display_name: 'Sara A.', matched_on: 'whatsapp' },
+      ]);
+      await settle();
+      http.expectNone('/api/v1/people');
+    });
+
+    it('is skipped for a retry of a create that may already have gone through', async () => {
+      open();
+      typeNumber('0101 234 5678');
+      fillAndSubmit();
+      http.expectOne('/api/v1/duplicates/check').flush([]);
+      const first = http.expectOne('/api/v1/people');
+      const key = first.request.headers.get('Idempotency-Key');
+      first.error(new ProgressEvent('error'));
+      await settle();
+
+      (el().querySelector('button.retry') as HTMLButtonElement).click();
+
+      http.expectNone('/api/v1/duplicates/check');
+      const retry = http.expectOne('/api/v1/people');
+      expect(retry.request.headers.get('Idempotency-Key')).toBe(key);
+      retry.flush(createdPerson('new-1'));
+      await settle();
+    });
+
+    for (const [what, status, body] of [
+      ['the session ended', 401, { code: 'auth.unauthenticated', message: 'x' }],
+      ['the MFA step lapsed', 403, { code: 'mfa_required', message: 'x' }],
+    ] as const) {
+      it(`keeps the entry and saves nothing when ${what} during the check`, async () => {
+        open();
+        typeNumber('0101 234 5678');
+        fillAndSubmit();
+
+        http.expectOne('/api/v1/duplicates/check').flush(body, { status, statusText: 'x' });
+        await settle();
+
+        http.expectNone('/api/v1/people');
+        expect((drafts.load('add-person') as { nameLatin: string }).nameLatin).toBe('Sara Ali');
+      });
+    }
+
     it('is not asked when no number or link was typed', async () => {
       open();
       fillAndSubmit();

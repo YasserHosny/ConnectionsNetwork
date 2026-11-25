@@ -390,8 +390,9 @@ what trips):
   runners on different addresses shared one budget.
 - **The header cannot be forged.** While the first machine is over its limit, one more request
   from it with `-H 'X-Real-IP: 203.0.113.9'` must still answer 429. A 404 means the edge passed
-  the visitor's own `X-Real-IP` through, and anyone could reset their budget per request: undo
-  the `real_ip_header` lines in `nginx.conf` until that is understood.
+  the visitor's own `X-Real-IP` through, and anyone could reset their budget per request: set
+  `TRUST_CDN_REAL_IP=false` on the web container at once (step 9; the container restarts with it),
+  check that the same request now answers 429 again, and leave it off until that is understood.
 
 Last, the product smoke: sign in as the admin with TOTP, add a person, create a contributor link,
 use it in a private window. (Do not send a link to anyone else yet: step 11 comes first.)

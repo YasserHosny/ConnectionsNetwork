@@ -25,17 +25,28 @@ printf '%s' "$SUPABASE_ANON_KEY" | grep -Eq '^[A-Za-z0-9._~+/=-]+$' ||
 printf '%s' "$BACKEND_HOST" | grep -Eq '^[A-Za-z0-9.-]+$' ||
     fail "BACKEND_HOST must be a host name"
 
-# TRUST_CDN_REAL_IP=true: take the visitor's address from X-Real-IP, whoever the peer is. Only
-# where bunny.net's CDN is the sole way in (the hosted app: its endpoint is the CDN, the API
-# container publishes no port) and its edge replaces any X-Real-IP a visitor sends (deploy
-# checklist step 10 checks that on hosted). Never where clients reach Nginx directly, such as
-# docker compose's published port: there it would let any client choose its rate-limit key.
+# TRUST_CDN_REAL_IP=true: the API is given the visitor's address from X-Real-IP, whoever the
+# peer is. Only where bunny.net's CDN is the sole way in (the hosted app: its endpoint is the
+# CDN, the API container publishes no port) and its edge replaces any X-Real-IP a visitor sends
+# (deploy checklist step 10 checks that on hosted). Never where clients reach Nginx directly,
+# such as docker compose's published port: there it would let any client choose its rate-limit
+# key. A value that does not look like an IPv4 or IPv6 address falls back to the peer.
 case "${TRUST_CDN_REAL_IP:-false}" in
 true)
-    printf '%s\n' 'set_real_ip_from 0.0.0.0/0;' 'set_real_ip_from ::/0;' 'real_ip_header X-Real-IP;'
+    cat <<'EOF'
+map $http_x_real_ip $api_client {
+    "~^[0-9A-Fa-f:.]{2,45}$" $http_x_real_ip;
+    default $remote_addr;
+}
+EOF
     ;;
 false)
-    printf '%s\n' "# TRUST_CDN_REAL_IP is not true: the client address is Nginx's peer."
+    cat <<'EOF'
+# TRUST_CDN_REAL_IP is not true: the client address is Nginx's peer.
+map $remote_addr $api_client {
+    default $remote_addr;
+}
+EOF
     ;;
 *)
     fail "TRUST_CDN_REAL_IP must be true or false"

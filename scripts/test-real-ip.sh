@@ -85,6 +85,10 @@ check "client-written X-Forwarded-For ignored" 198.51.100.9 \
   -H 'X-Real-IP: 198.51.100.9' -H 'X-Forwarded-For: 192.0.2.66'
 check "client-written X-Forwarded-For ignored (last entry)" 198.51.100.9 \
   -H 'X-Real-IP: 198.51.100.9' -H 'X-Forwarded-For: 198.51.100.9, 192.0.2.66'
+# No usable X-Real-IP: fall back to the peer rather than pass a list or junk to the API.
+check "no X-Real-IP: the peer" "$PEER"
+check "X-Real-IP that is a list: the peer" "$PEER" -H 'X-Real-IP: 192.0.2.10, 192.0.2.11'
+check "X-Real-IP that is not an address: the peer" "$PEER" -H 'X-Real-IP: not-an-address'
 
 echo "== TRUST_CDN_REAL_IP unset (docker compose: clients reach Nginx directly)"
 start_nginx unset

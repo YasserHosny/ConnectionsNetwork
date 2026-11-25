@@ -386,10 +386,15 @@ what trips):
   response header, which names the bunny.net edge server, e.g. `BunnyCDN-FR1-1072`). If the second
   gets 429, every visitor behind an edge shares one budget: Nginx is keying on the edge. The check
   only counts when both runners went through the **same** edge server: through different ones,
-  edge-keyed limits would also look separate. The baseline, before the fix (2026-11-25): two
-  runners on different addresses shared one budget.
+  edge-keyed limits would also look separate. GitHub runners land in different US regions, so pin
+  both to one edge: resolve the site's IPv4 address once and pass
+  `--resolve <site host>:443:<that address>` to every `curl`. Results (2026-11-25): before the fix,
+  two runners on different addresses shared one budget; after it, two runners pinned to one edge
+  server (`BunnyCDN-FR1-1317`) kept separate budgets.
 - **The header cannot be forged.** While the first machine is over its limit, one more request
-  from it with `-H 'X-Real-IP: 203.0.113.9'` must still answer 429. A 404 means the edge passed
+  from it with `-H 'X-Real-IP: 203.0.113.9'` must still answer 429 (2026-11-25: 429 for forged
+  IPv4 and IPv6 values; a 429 means something only once the previous check shows the setting is
+  active, since with it off every request is keyed on the edge anyway). A 404 means the edge passed
   the visitor's own `X-Real-IP` through, and anyone could reset their budget per request: set
   `TRUST_CDN_REAL_IP=false` on the web container at once (step 9; the container restarts with it)
   and leave it off until that is understood. To confirm the rollback, start over: the budget is now

@@ -64,10 +64,10 @@ In their **own GitHub Environment named `backup`** (Settings, Environments, New 
 | `BACKUP_AGE_RECIPIENT` | the public key, `age1...` |
 | `BUNNY_STORAGE_ZONE` | the storage zone's name |
 | `BUNNY_STORAGE_HOST` | the zone's region endpoint, host only, for example `storage.bunnycdn.com` (Falkenstein) or `ny.storage.bunnycdn.com` |
-| `BUNNY_STORAGE_KEY` | the zone's password (read and write) |
+| `BUNNY_STORAGE_KEY` | the zone's **Password** under FTP & API Access (read and write). Not the Read-only password and not the account API key: with either, the upload fails with `curl: (22) ... error: 401` |
 | `WEB_PUBLIC_URL` | the site's public origin, `https://connections.example.com`, no trailing slash |
 | `SUPABASE_URL` | `https://<ref>.supabase.co` |
-| `SUPABASE_ANON_KEY` | the project's anon (publishable) key |
+| `SUPABASE_ANON_KEY` | the project's publishable key (`sb_publishable_...`) or legacy anon key |
 
 ### First run
 
@@ -95,6 +95,17 @@ Notes:
 Do this on your own machine, in an empty scratch folder. Requirements: `age`, Docker, and either
 the PostgreSQL 17 client tools or the `docker run ... postgres:17` forms below. The private key
 file is needed.
+
+Docker alone is enough. Without `age` on the host, decrypt in a throwaway container, with the key
+directory mounted read-only:
+
+```bash
+docker run --rm -v /path/to/key-dir:/k:ro -v "$PWD:/w" alpine:3.20 sh -c \
+  "apk add -q age && umask 077 && age -d -i /k/connections-backup.key -o /w/restore.dump /w/$FILE && chown $(id -u):$(id -g) /w/restore.dump"
+```
+
+Without `psql` on the host, start the option A container with `-v "$PWD:/w:ro"` and run `psql` and
+`pg_restore` inside it with `docker exec restore-drill ...` (as `-U postgres`, file `/w/restore.dump`).
 
 ### 2.1 Take a fresh backup and note production's counts
 
@@ -173,6 +184,18 @@ psql "$RESTORE_URL" -At -c "
 message about an extension or a role that the target does not have (outside the `public` schema's
 tables, functions and policies) is expected on option A. A message about a `public` table, an
 index or a constraint is not: stop, and do not send contributor links until it is understood.
+Read each error in full: `pg_restore` often names a table without its schema, so grepping for
+`public.` is not enough. The first drill (option A) printed exactly three, all expected:
+
+```
+pg_restore: error: could not execute query: ERROR:  extension "supabase_vault" is not available
+pg_restore: error: could not execute query: ERROR:  extension "supabase_vault" does not exist
+pg_restore: error: could not execute query: ERROR:  relation "vault.secrets" does not exist
+pg_restore: warning: errors ignored on restore: 3
+```
+
+(The exit status is 1 because of them.) Print only the `pg_restore: error:` lines when sharing the
+output: the `DETAIL` and `Command was` lines that follow can quote row data.
 
 The restored counts for `person`, `connection` and `contact_value` must **equal** production's
 (2.1). Optional extra checks: `select count(*) from member` is at least 1, and
@@ -195,7 +218,7 @@ drill was run (`YYYY-MM-DD`).
 
 | Date | Backup file restored | Restored into | person (prod / restored) | connection (prod / restored) | contact_value (prod / restored) | Result | By |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-|  |  |  |  |  |  |  |  |
+| 2026-11-25 | `connections-2026-11-25.dump.age` (528,129 bytes; manual run right before the counts) | A: `postgres:17` container, Docker-only path | 1 / 1 | 0 / 0 | 0 / 0 | Pass. Also `member` 1 / 1, `contributor_link` 0 / 0. Only the three `supabase_vault` errors. Near-empty network: repeat once real contacts are in | Owner |
 |  |  |  |  |  |  |  |  |
 |  |  |  |  |  |  |  |  |
 

@@ -9,6 +9,8 @@ export interface ConfirmDialogData {
   bodyKey: string;
   confirmKey: string;
   params?: Record<string, string>;
+  /** The action deletes or ends something (merge, revoke, remove): the confirm button says so. */
+  destructive?: boolean;
 }
 
 /**
@@ -26,7 +28,13 @@ export interface ConfirmDialogData {
       <button mat-button type="button" class="dialog-cancel" [mat-dialog-close]="false" cdkFocusInitial>
         {{ 'common.cancel' | translate }}
       </button>
-      <button mat-flat-button type="button" class="dialog-confirm" [mat-dialog-close]="true">
+      <button
+        mat-flat-button
+        type="button"
+        class="dialog-confirm"
+        [class.danger]="data.destructive"
+        [mat-dialog-close]="true"
+      >
         {{ data.confirmKey | translate }}
       </button>
     </mat-dialog-actions>

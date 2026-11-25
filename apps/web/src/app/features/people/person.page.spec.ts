@@ -137,6 +137,27 @@ describe('PersonPage', () => {
     expect(el().querySelector('.stale-badge')).toBeNull();
   });
 
+  describe('right after a quick add', () => {
+    it('says the person was saved and offers to add another', async () => {
+      const navigated = router.navigateByUrl('/people/p-7', { state: { justAdded: true } });
+      (await until(() => http.match('/api/v1/people/p-7')[0])).flush(PERSON);
+      http.expectOne('/api/v1/people/p-7/paths?k=4').flush(PATHS);
+      await navigated;
+      await settle();
+
+      const banner = el().querySelector('.just-added') as HTMLElement;
+      expect(banner.getAttribute('role')).toBe('status');
+      expect(banner.querySelector('a')?.getAttribute('href')).toBe('/add');
+      expect(banner.textContent).toContain('Add another person');
+    });
+
+    it('is not offered when the person is simply opened', async () => {
+      await open();
+
+      expect(el().querySelector('.just-added')).toBeNull();
+    });
+  });
+
   it('opens a social link saved without a scheme on the web, and never a script link', async () => {
     await harness.navigateByUrl('/people/p-7', PersonPage);
     fixture().detectChanges();

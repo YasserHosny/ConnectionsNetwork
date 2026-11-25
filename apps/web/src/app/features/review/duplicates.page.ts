@@ -199,6 +199,7 @@ export class DuplicatesPage {
       titleKey: 'review.duplicates.mergeDialog.title',
       bodyKey: 'review.duplicates.mergeDialog.body',
       confirmKey: 'review.duplicates.mergeDialog.confirm',
+      destructive: true,
       params: {
         keep: isolate(this.label(keep, keepIsFirst ? 1 : 2)),
         drop: isolate(this.label(drop, keepIsFirst ? 2 : 1)),

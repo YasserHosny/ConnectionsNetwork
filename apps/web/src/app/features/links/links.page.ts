@@ -110,7 +110,7 @@ const DATE_KEYS: Record<LinkStatus, string> = {
                   <button
                     mat-stroked-button
                     type="button"
-                    class="revoke"
+                    class="revoke danger"
                     [disabled]="busy() !== null"
                     (click)="revoke(link)"
                   >
@@ -306,6 +306,7 @@ export class LinksPage {
       bodyKey: 'links.revokeDialog.body',
       confirmKey: 'links.revokeDialog.confirm',
       params: { name: isolate(link.display_name) },
+      destructive: true,
     };
     this.dialog
       .open(ConfirmDialog, { data })

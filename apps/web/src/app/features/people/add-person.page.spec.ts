@@ -93,7 +93,7 @@ describe('AddPersonPage', () => {
     await settle();
 
     expect(drafts.load('add-person')).toBeNull();
-    expect(navigate).toHaveBeenCalledWith('/people/new-1');
+    expect(navigate).toHaveBeenCalledWith('/people/new-1', { state: { justAdded: true } });
   });
 
   it('retries a failed save with the same Idempotency-Key, so the person is created once', async () => {
@@ -143,6 +143,82 @@ describe('AddPersonPage', () => {
     expect(el().querySelector('.duplicates')?.textContent).toContain('phone');
     expect(navigate).not.toHaveBeenCalled();
     expect(el().querySelector('a.open-person')?.getAttribute('href')).toBe('/people/new-1');
+  });
+
+  describe('someone already has the number typed', () => {
+    const numberInput = () => el().querySelector('fieldset.contacts input.contact-value') as HTMLInputElement;
+
+    function typeNumber(value: string): void {
+      numberInput().value = value;
+      numberInput().dispatchEvent(new Event('input'));
+    }
+
+    it('warns before saving, and saves only when Save is pressed again', async () => {
+      open();
+      typeNumber('0101 234 5678');
+      fillAndSubmit();
+
+      const check = http.expectOne('/api/v1/duplicates/check');
+      expect(check.request.method).toBe('POST');
+      expect(check.request.body).toEqual({
+        contacts: [{ kind: 'whatsapp', value: '0101 234 5678' }],
+        social_links: [],
+      });
+      check.flush([{ person_id: 'old-1', display_name: 'Sara A.', matched_on: 'whatsapp' }]);
+      await settle();
+
+      http.expectNone('/api/v1/people');
+      const warning = el().querySelector('.precheck') as HTMLElement;
+      expect(warning.querySelector('a')?.getAttribute('href')).toBe('/people/old-1');
+      expect(warning.textContent).toContain('Sara A.');
+      expect(warning.textContent).toContain('Save again');
+      expect(navigate).not.toHaveBeenCalled();
+
+      el().querySelector('form')?.dispatchEvent(new Event('submit'));
+      http.expectNone('/api/v1/duplicates/check');
+      http.expectOne('/api/v1/people').flush(createdPerson('new-1'));
+      await settle();
+
+      expect(navigate).toHaveBeenCalledWith('/people/new-1', { state: { justAdded: true } });
+    });
+
+    it('checks again when the number is changed after a warning', async () => {
+      open();
+      typeNumber('0101 234 5678');
+      fillAndSubmit();
+      http.expectOne('/api/v1/duplicates/check').flush([
+        { person_id: 'old-1', display_name: 'Sara A.', matched_on: 'whatsapp' },
+      ]);
+      await settle();
+
+      typeNumber('0109 999 9999');
+      el().querySelector('form')?.dispatchEvent(new Event('submit'));
+
+      http.expectOne('/api/v1/duplicates/check').flush([]);
+      http.expectOne('/api/v1/people').flush(createdPerson('new-1'));
+      await settle();
+    });
+
+    it('does not block the save when the check itself fails', async () => {
+      open();
+      typeNumber('0101 234 5678');
+      fillAndSubmit();
+
+      http.expectOne('/api/v1/duplicates/check').flush({ code: 'internal_error' }, { status: 500, statusText: 'x' });
+      http.expectOne('/api/v1/people').flush(createdPerson('new-1'));
+      await settle();
+
+      expect(navigate).toHaveBeenCalledWith('/people/new-1', { state: { justAdded: true } });
+    });
+
+    it('is not asked when no number or link was typed', async () => {
+      open();
+      fillAndSubmit();
+
+      http.expectNone('/api/v1/duplicates/check');
+      http.expectOne('/api/v1/people').flush(createdPerson('new-1'));
+      await settle();
+    });
   });
 
   it('connects to the person picked in "Connected to"', async () => {

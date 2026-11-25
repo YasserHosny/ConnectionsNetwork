@@ -181,8 +181,7 @@ export function hasOptionalValues(value: PersonFormValue): boolean {
     value.adminNotes.trim() ||
     value.skills.length ||
     value.industries.length ||
-    value.socialLinks.length ||
-    value.contacts.length
+    value.socialLinks.length
   );
 }
 

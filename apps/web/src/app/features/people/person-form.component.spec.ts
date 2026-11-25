@@ -1,6 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { FormGroup } from '@angular/forms';
 import { provideRouter } from '@angular/router';
 import { provideTranslateService } from '@ngx-translate/core';
@@ -204,7 +204,7 @@ describe('PersonFormComponent', () => {
     expect(el().querySelector('button.retry')).not.toBeNull();
   });
 
-  it('does not save a draft for a rejected request, and never shows the English API message', async () => {
+  it('does not keep a rejected request as a submission to retry, and never shows the English API message', async () => {
     submitter.and.returnValue(
       throwError(
         () =>
@@ -220,7 +220,9 @@ describe('PersonFormComponent', () => {
 
     await submit();
 
-    expect(drafts.load('add-person')).toBeNull();
+    // What was typed may stay as an editable draft; the refused submission (its key) does not.
+    expect(drafts.load<{ idempotencyKey?: string }>('add-person')?.idempotencyKey).toBeUndefined();
+    expect(field('nameLatin').disabled).toBeFalse();
     expect(el().querySelector('button.retry')).toBeNull();
     expect(alertText()).toContain('no longer exists');
     expect(alertText()).not.toContain('Request validation failed.');
@@ -411,7 +413,8 @@ describe('PersonFormComponent', () => {
       expect(field('nameLatin').disabled).toBeFalse();
       expect(field('nameLatin').value).toBe('Sara Ali');
       expect(el().querySelector('.locked-note')).toBeNull();
-      expect(drafts.load('add-person')).toBeNull();
+      // The failed submission is forgotten; the values may stay only as an editable draft.
+      expect(drafts.load<{ idempotencyKey?: string }>('add-person')?.idempotencyKey).toBeUndefined();
 
       setText('nameLatin', 'Sara Ali Hassan');
       submitter.and.returnValue(of({ ok: true }));
@@ -691,11 +694,52 @@ describe('PersonFormComponent', () => {
     expect(el().querySelector('.draft-note')).toBeNull();
   });
 
-  it('does not save a draft on every keystroke', () => {
-    create();
-    setText('nameLatin', 'Sara');
+  describe('typed input, before any save', () => {
+    it('is kept as a draft after a pause, not on every keystroke', fakeAsync(() => {
+      create();
+      setText('nameLatin', 'Sara');
+      chooseStrength('weak');
 
-    expect(drafts.load('add-person')).toBeNull();
+      expect(drafts.load('add-person')).toBeNull();
+      tick(1000);
+
+      expect(drafts.load<PersonFormValue>('add-person')?.nameLatin).toBe('Sara');
+      expect(drafts.load<PersonFormValue>('add-person')?.strength).toBe('weak');
+    }));
+
+    it('comes back editable when the page is opened again', fakeAsync(() => {
+      create();
+      setText('nameLatin', 'Sara');
+      tick(1000);
+      fixture.destroy();
+
+      create();
+
+      expect(field('nameLatin').value).toBe('Sara');
+      expect(field('nameLatin').disabled).toBeFalse();
+      expect(el().querySelector('.draft-note')).not.toBeNull();
+    }));
+
+    it('leaves no draft once the person is saved', fakeAsync(() => {
+      create();
+      setText('nameLatin', 'Sara');
+      chooseStrength('weak');
+      el().querySelector('form')?.dispatchEvent(new Event('submit'));
+      tick(1000);
+
+      expect(saved).toHaveBeenCalled();
+      expect(drafts.load('add-person')).toBeNull();
+    }));
+
+    it('leaves no draft when everything typed is cleared again', fakeAsync(() => {
+      create();
+      setText('nameLatin', 'Sara');
+      tick(1000);
+      setText('nameLatin', '');
+      tick(1000);
+
+      expect(drafts.load('add-person')).toBeNull();
+    }));
   });
 
   it('hides the contact picker button when the browser lacks the Contact Picker API', () => {
@@ -725,6 +769,59 @@ describe('PersonFormComponent', () => {
       { kind: 'phone', value: '0101 234 5678' },
       { kind: 'email', value: 's@example.com' },
     ]);
+  });
+
+  describe('a new person starts with one WhatsApp number field', () => {
+    const contactRows = () => el().querySelectorAll('fieldset.contacts .row');
+    const firstKind = () => el().querySelector('fieldset.contacts select') as HTMLSelectElement;
+    const firstValue = () => el().querySelector('fieldset.contacts input.contact-value') as HTMLInputElement;
+
+    for (const [who, inputs] of [
+      ['the admin', {}],
+      ['a contributor', { contributor: true, draftKey: 'contribute' }],
+    ] as const) {
+      it(`for ${who}, next to the names, outside More details`, () => {
+        create(inputs);
+
+        expect(contactRows().length).toBe(1);
+        expect(firstKind().value).toBe('whatsapp');
+        expect(firstValue().value).toBe('');
+        expect(el().querySelector('details.more')?.contains(firstValue())).toBeFalse();
+        expect((el().querySelector('details.more') as HTMLDetailsElement).open).toBeFalse();
+      });
+    }
+
+    it('sends the number typed into it', async () => {
+      create();
+      setText('nameLatin', 'Sara Ali');
+      chooseStrength('weak');
+      firstValue().value = '0101 234 5678';
+      firstValue().dispatchEvent(new Event('input'));
+
+      await submit();
+
+      expect(submitter.calls.mostRecent().args[0].contacts).toEqual([{ kind: 'whatsapp', value: '0101 234 5678' }]);
+    });
+
+    it('is filled by a picked contact instead of adding a row beside it', async () => {
+      Object.defineProperty(navigator, 'contacts', {
+        configurable: true,
+        value: { select: () => Promise.resolve([{ name: ['Sara Ali'], tel: ['0101 234 5678'], email: [] }]) },
+      });
+      create();
+      (el().querySelector('button.pick-contact') as HTMLButtonElement).click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(contactRows().length).toBe(1);
+      expect(firstValue().value).toBe('0101 234 5678');
+    });
+
+    it('is not added when editing someone', () => {
+      create({ mode: 'edit', draftKey: 'edit-person:7', initial: { nameLatin: 'Omar' } });
+
+      expect(contactRows().length).toBe(0);
+    });
   });
 
   it('in edit mode starts from the person and asks for no strength', async () => {

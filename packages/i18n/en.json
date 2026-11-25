@@ -152,6 +152,10 @@
       "openPerson": "Open the new person",
       "addAnother": "Add another person"
     },
+    "precheck": {
+      "title": "This person may already be in your network",
+      "intro": "These people already have a number, email or link you typed. Open them to check, or press Save again to add this person anyway."
+    },
     "edit": {
       "loadFailed": "Could not load this person."
     },
@@ -211,7 +215,8 @@
       "cannotDropAccount": "This record belongs to a sign-in account, so it cannot be merged away. Keep it instead.",
       "linkRevoked": "This link was revoked, so it cannot be renewed. Create a new link instead.",
       "tooManyRequests": "Too many tries. Wait a minute, then try again.",
-      "idempotencyKeyReused": "This save was already received with different details. Use Start over to enter it again."
+      "idempotencyKeyReused": "This save was already received with different details. Use Start over to enter it again.",
+      "possibleDuplicates": "Check the people listed at the top before saving."
     }
   },
   "search": {
@@ -232,6 +237,7 @@
     "idle": "Type a name, a skill or a profession, or choose a filter, to search your network.",
     "contactHint": "Phone numbers and email addresses cannot be searched. Search by name, skill or profession.",
     "resultsCount": "Results: {{count}}",
+    "limitReached": "Showing the {{count}} closest people. Add a filter to narrow it down.",
     "noResults": "No one matches this search.",
     "notConnected": "Not connected to you",
     "availableFor": "Available for:",

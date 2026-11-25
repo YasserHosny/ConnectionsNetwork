@@ -11,6 +11,9 @@ need a running stack; those are run after step 9 (marked below).
 Placeholders: `<ref>` is the Supabase project reference, `<owner>` the GitHub account or
 organisation (lower case), `$SESSION_URL` the **session pooler** connection string (port 5432,
 user `postgres.<ref>`), used for migrations and the bootstrap only. The API uses the **transaction pooler** (port 6543) as `connections_api` (step 4).
+`<pooler host>` is the host the dashboard's **Connect** dialog shows for the pooler; copy it, do not
+guess it: it varies by project (the first deploy's was `aws-1-eu-west-1.pooler.supabase.com`, not
+`aws-0-...`).
 
 ## 1. GHCR, GitHub secrets and the bunny.net app
 
@@ -41,17 +44,33 @@ workflow); the containers must be created with exactly these names.
 3. In bunny.net create **one Magic Containers app** with **two containers** in it, `connections-api`
    (port 8000) and `connections-web` (port 80), pulling the two images above. Only the web
    container's port 80 may be published as the app's endpoint. **Never publish port 8000**: the API is
-   reached only through Nginx, and uvicorn trusts forwarded headers from localhost. Then add
+   reached only through Nginx, and uvicorn trusts forwarded headers from localhost. **The bunny.net
+   form adds a public endpoint for port 8000 on its own** when the API container is created: open
+   the API container's endpoints and delete it, so the app's only endpoint is the web container's
+   CDN endpoint on port 80. Then add
    `BUNNY_APP_ID` to the `production` environment's secrets and run the workflow again, from `main`.
+
+   Scaling: set the app to **minimum 1, maximum 1** instance. The rate limits (SlowAPI) are kept in
+   the API's memory, so a second instance would double every limit and split the counts.
 4. Registry: if the GHCR packages are private, add a GHCR pull registry in bunny.net (a GitHub
    token with `read:packages`) and select it for both containers (needed already when creating
    them in item 3). Alternatively make both packages public.
+5. Custom domain: in your DNS provider, a **CNAME** from the site's name (e.g. `connections`) to the
+   app's CDN address, **`mc-<id>.b-cdn.net`**. Not the `mc-<id>.bunny.run` name, which bunny.net
+   also shows: its custom-hostname check accepts only the `b-cdn.net` target. Once public DNS
+   returns the `b-cdn.net` name, add the hostname in bunny.net and press **Verify & Activate SSL**
+   (Let's Encrypt).
 
 Verify: the second workflow run is green, and the bunny.net dashboard shows both containers on the
-commit SHA tag. Also check the guard: starting the workflow from any other branch shows the deploy job as
+commit SHA tag, one instance, and a single endpoint (port 80). `https://<site>/api/v1/health`
+answers 200 over the custom domain. Also check the guard: starting the workflow from any other branch shows the deploy job as
 skipped.
 
 ## 2. Hosted Supabase: pg_trgm, then the migrations
+
+The Free plan allows **two active free projects per owner, counted across all organisations**: a
+new organisation does not help. If you are at the limit, pause another project first (its data is
+kept) or upgrade.
 
 The SQL in this and the following steps runs in the Supabase SQL editor, or through
 `psql "$SESSION_URL"`.
@@ -271,14 +290,14 @@ Set these on the containers in the bunny.net app (never in the repository or in 
 | --- | --- | --- |
 | `connections-api` | `DATABASE_URL` | the **transaction pooler** (port 6543) as `connections_api` (step 4): `postgresql://connections_api.<ref>:<password>@<pooler host>:6543/postgres`. Never `postgres` |
 | `connections-api` | `SUPABASE_URL` | `https://<ref>.supabase.co` |
-| `connections-api` | `SUPABASE_ANON_KEY` | the project's anon (publishable) key |
+| `connections-api` | `SUPABASE_ANON_KEY` | the project's **publishable** key (`sb_publishable_...`, Project Settings, API Keys); the legacy `anon` JWT also works, but Supabase is retiring those. Never a secret or `service_role` key |
 | `connections-api` | `SUPABASE_JWT_AUDIENCE` | `authenticated` |
 | `connections-api` | `SUPABASE_JWT_ISSUER` | `https://<ref>.supabase.co/auth/v1` |
 | `connections-api` | `API_ENV` | `production` |
 | `connections-api` | `API_CORS_ORIGINS` | the site's public origin, e.g. `https://connections.example.com` |
 | `connections-api` | `WEB_PUBLIC_URL` | the same public origin (contributor links are built from it) |
 | `connections-web` | `SUPABASE_URL` | `https://<ref>.supabase.co`: a bare origin, no path and no trailing slash |
-| `connections-web` | `SUPABASE_ANON_KEY` | the same anon key |
+| `connections-web` | `SUPABASE_ANON_KEY` | the same publishable key |
 | `connections-web` | `BACKEND_HOST` | `127.0.0.1` (the image default, so it may be left unset): both containers share one network in the app. Not `localhost`, which can resolve to `::1`, where uvicorn does not listen |
 
 Do not set `SUPABASE_JWT_SECRET` (hosted tokens are verified against the project's published signing
@@ -318,9 +337,20 @@ done
 curl -s "$SITE/runtime-config.json"   # your project URL and anon key, nothing else
 ```
 
-Every line must say `no-store`, exactly once (`/api/v1/health` stands for every API response: they
-carry contact data). If bunny.net's CDN sits in front of the app, a stale cached copy of any of these
-means the CDN ignores the origin's header; fix that in the pull-zone cache settings before going on.
+Every line must say `no-store` or `no-cache`, exactly once, and the API line must say `no-store`
+(`/api/v1/health` stands for every API response: they carry contact data).
+
+bunny.net's CDN sits in front of the app (the Magic Containers endpoint is a pull zone). With the
+server cache set to respect the origin's `Cache-Control`, it never shares a cached copy between
+visitors, but it rewrites the header browsers receive to `no-cache`, and that pull zone's
+browser-cache setting is locked in the dashboard. `no-cache` is acceptable for the static files
+(the browser re-checks them every time); it is **not** for API responses, which must not be written
+to the browser's disk. Add an edge rule on the pull zone:
+
+- Action **Set Response Header**, `Cache-Control` = `no-store`;
+- Condition **Request URL** matches `*/api/*`.
+
+It applies within a minute; then the loop above shows `no-store` once on `/api/v1/health`.
 
 Logs (bunny.net dashboard, container logs). Make a request that carries a query string, then
 read both containers' logs:

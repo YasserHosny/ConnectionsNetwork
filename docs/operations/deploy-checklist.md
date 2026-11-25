@@ -391,8 +391,10 @@ what trips):
 - **The header cannot be forged.** While the first machine is over its limit, one more request
   from it with `-H 'X-Real-IP: 203.0.113.9'` must still answer 429. A 404 means the edge passed
   the visitor's own `X-Real-IP` through, and anyone could reset their budget per request: set
-  `TRUST_CDN_REAL_IP=false` on the web container at once (step 9; the container restarts with it),
-  check that the same request now answers 429 again, and leave it off until that is understood.
+  `TRUST_CDN_REAL_IP=false` on the web container at once (step 9; the container restarts with it)
+  and leave it off until that is understood. To confirm the rollback, start over: the budget is now
+  keyed on the edge, so send a fresh burst until requests answer 429, then, within the same minute,
+  the request with the forged `X-Real-IP` must answer 429 too.
 
 Last, the product smoke: sign in as the admin with TOTP, add a person, create a contributor link,
 use it in a private window. (Do not send a link to anyone else yet: step 11 comes first.)

@@ -89,6 +89,9 @@ check "client-written X-Forwarded-For ignored (last entry)" 198.51.100.9 \
 check "no X-Real-IP: the peer" "$PEER"
 check "X-Real-IP that is a list: the peer" "$PEER" -H 'X-Real-IP: 192.0.2.10, 192.0.2.11'
 check "X-Real-IP that is not an address: the peer" "$PEER" -H 'X-Real-IP: not-an-address'
+check "X-Real-IP with a port: the peer" "$PEER" -H 'X-Real-IP: 192.0.2.7:443'
+check "bracketed IPv6 with a port: the peer" "$PEER" -H 'X-Real-IP: [2001:db8::7]:443'
+check "IPv4-mapped IPv6 visitor" ::ffff:198.51.100.12 -H 'X-Real-IP: ::ffff:198.51.100.12'
 
 echo "== TRUST_CDN_REAL_IP unset (docker compose: clients reach Nginx directly)"
 start_nginx unset

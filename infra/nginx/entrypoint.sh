@@ -30,12 +30,14 @@ printf '%s' "$BACKEND_HOST" | grep -Eq '^[A-Za-z0-9.-]+$' ||
 # CDN, the API container publishes no port) and its edge replaces any X-Real-IP a visitor sends
 # (deploy checklist step 10 checks that on hosted). Never where clients reach Nginx directly,
 # such as docker compose's published port: there it would let any client choose its rate-limit
-# key. A value that does not look like an IPv4 or IPv6 address falls back to the peer.
+# key. A value that is not a bare IPv4 or IPv6 address (a list, a port, junk) falls back to the
+# peer.
 case "${TRUST_CDN_REAL_IP:-false}" in
 true)
     cat <<'EOF'
 map $http_x_real_ip $api_client {
-    "~^[0-9A-Fa-f:.]{2,45}$" $http_x_real_ip;
+    "~^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$" $http_x_real_ip;
+    "~^(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f.]{0,15}$" $http_x_real_ip;
     default $remote_addr;
 }
 EOF

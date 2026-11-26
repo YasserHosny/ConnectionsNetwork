@@ -108,12 +108,14 @@ cmd_backup() {
 
   local name
   name="connections-$(date -u +%F).dump.age"
-  # Global, not local: the EXIT trap runs after this function has returned.
-  out="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/$name"
-  pg_err="$out.pg_dump-stderr"
   umask 077
-  # Remove the encrypted file on every exit: it holds all contact data, even if only encrypted.
-  trap 'rm -f -- "$out" "$pg_err"' EXIT
+  # A fresh private directory per run (mode 700): a fixed path could be a file someone else
+  # already made and can read, and a redirection into it keeps that file's permissions. Global,
+  # not local: the EXIT trap runs after this function has returned. Remove it on every exit: the
+  # encrypted file holds all contact data, and pg_dump's raw messages name the server.
+  workdir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/backup.XXXXXXXX")"
+  trap 'rm -rf -- "$workdir"' EXIT
+  local out="$workdir/$name" pg_err="$workdir/pg_dump.stderr"
 
   # pg_dump's stderr goes to a file, never straight to the log (see redact_pg_messages). A
   # failure of either side fails the job, and nothing gets uploaded.

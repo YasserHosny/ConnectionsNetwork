@@ -82,8 +82,9 @@ Notes:
   emails on. A red Backup run means there is no backup for that night.
 - This repository **is public** (since 2026-11-26), and GitHub switches a public repository's
   scheduled workflows off after 60 days with no repository activity. Then the backups **and the
-  keepalive** stop, and the project pauses a week later. Push any commit before the 60 days are
-  up, or re-enable the workflow under Actions once it is off.
+  keepalive** stop, and Supabase may pause the project once it has seen little activity for 7
+  days. Push any commit before the 60 days are up, or re-enable the workflow under Actions once it
+  is off.
 - The run logs are public too. Secrets are masked, but only as whole strings, so the script never
   lets a tool print a host or user taken out of one: `pg_dump`'s messages are shown redacted
   (`connection to server at "<redacted>" (<address>), port 5432 failed: ... password authentication

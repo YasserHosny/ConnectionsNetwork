@@ -4,7 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { TranslatePipe, TranslateService } from '@ngx-translate/core';
+import { TranslatePipe } from '@ngx-translate/core';
 import type {
   AlternativePath,
   AvailableFor,
@@ -250,7 +250,9 @@ const PATH_COUNT = 4;
                         class="connection-strength"
                         [disabled]="busy()"
                         [attr.aria-label]="
-                          'person.view.connectionStrength' | translate: { name: (connectionName(connection) | isolate) }
+                          isMine(connection)
+                            ? ('person.view.connectionStrengthOwn' | translate)
+                            : ('person.view.connectionStrength' | translate: { name: (connection.display_name | isolate) })
                         "
                         (change)="changeStrength(connection, $event)"
                       >
@@ -269,7 +271,9 @@ const PATH_COUNT = 4;
                         class="remove-connection"
                         [disabled]="busy()"
                         [attr.aria-label]="
-                          'person.view.removeConnection' | translate: { name: (connectionName(connection) | isolate) }
+                          isMine(connection)
+                            ? ('person.view.removeOwnConnection' | translate)
+                            : ('person.view.removeConnection' | translate: { name: (connection.display_name | isolate) })
                         "
                         (click)="removeConnection(connection)"
                       >
@@ -441,7 +445,6 @@ export class PersonPage {
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly auth = inject(AuthService);
-  private readonly translate = inject(TranslateService);
   private readonly locale = inject(LocaleService);
 
   protected readonly id = signal('');
@@ -607,10 +610,6 @@ export class PersonPage {
   /** The admin's own connection to this person: shown as "You", as in the path line. */
   protected isMine(connection: ConnectionOut): boolean {
     return connection.person_id === this.auth.personId();
-  }
-
-  protected connectionName(connection: ConnectionOut): string {
-    return this.isMine(connection) ? this.translate.instant('search.path.you') : connection.display_name;
   }
 
   protected removeConnection(connection: ConnectionOut): void {

@@ -534,6 +534,16 @@ describe('PersonFormComponent', () => {
       expect(saved).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps an edit as a draft before it is sent, so a reload mid-save loses nothing', async () => {
+      submitter.and.returnValue(new Subject<unknown>().asObservable());
+      create({ mode: 'edit', draftKey: 'edit-person:7', initial: { nameLatin: 'Omar' } });
+      setText('nameLatin', 'Omar Khaled');
+
+      await submit();
+
+      expect(drafts.load<PersonFormValue>('edit-person:7')?.nameLatin).toBe('Omar Khaled');
+    });
+
     it('a restored edit draft is not locked', async () => {
       submitter.and.returnValue(networkDown());
       create({ mode: 'edit', draftKey: 'edit-person:7', initial: { nameAr: '', nameLatin: 'Omar' } });

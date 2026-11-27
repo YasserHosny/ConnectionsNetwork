@@ -401,6 +401,14 @@ describe('PersonPage', () => {
       expect(el().querySelector('.connections')?.textContent).not.toContain('Yasser Hosny');
     });
 
+    it('is announced to screen readers as yours', async () => {
+      await openMine();
+
+      const li = el().querySelector('.connections li') as HTMLElement;
+      expect(li.querySelector('button.remove-connection')?.getAttribute('aria-label')).toBe('Remove your connection');
+      expect(li.querySelector('select.connection-strength')?.getAttribute('aria-label')).toBe('Strength of your connection');
+    });
+
     it('is removed with a question in your words', async () => {
       await openMine();
       (el().querySelector('.connections li button.remove-connection') as HTMLButtonElement).click();

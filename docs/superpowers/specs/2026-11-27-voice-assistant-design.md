@@ -226,7 +226,7 @@ The trial is a separate app entry, so its spend never uses up the Connections bu
 Every request carries `Authorization: Bearer <app key>`. The gateway hashes the key and looks it
 up; an unknown key gets 401. Every metered request also carries `use_case` and `end_user_id` (an
 opaque string up to 128 characters). An unknown use case gets 422. Error bodies use the same
-`{error: {code, message}}` shape as `apps/api`.
+`{code, message, details, trace_id}` shape as `apps/api`.
 
 **`POST /v1/llm/messages`**
 

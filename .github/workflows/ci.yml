@@ -57,6 +57,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Lint backend
         run: uv run --project apps/api ruff check apps/api
+      - name: Lint gateway
+        run: uv run --project apps/assistant-gateway ruff check apps/assistant-gateway
       - name: Lint workspace
         # Runs every package's `lint` task through turbo: for apps/web that is ESLint plus the
         # i18n key, logical-CSS and PWA checks (apps/web/scripts/check-*.mjs).
@@ -101,6 +103,11 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: uv run --project apps/api pytest
+      - name: Run gateway tests
+        # The root pytest.ini points testpaths at apps/api; the explicit path overrides it.
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: uv run --project apps/assistant-gateway pytest apps/assistant-gateway/tests
 
   web-unit-tests:
     name: Web unit tests

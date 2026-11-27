@@ -7,6 +7,7 @@ transition instant (zoneinfo's ``fold=0``), so consecutive windows always meet e
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -21,14 +22,36 @@ def _local_date(now: datetime, tz: ZoneInfo) -> date:
     return now.astimezone(tz).date()
 
 
-def month_window(now: datetime, tz: ZoneInfo) -> tuple[datetime, datetime]:
-    """UTC bounds of the calendar month in `tz` that contains `now`."""
-    today = _local_date(now, tz)
-    first = today.replace(day=1)
+def _month_bounds(first: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
     following = (
         date(first.year + 1, 1, 1) if first.month == 12 else first.replace(month=first.month + 1)
     )
     return _local_midnight(first, tz), _local_midnight(following, tz)
+
+
+def month_window(now: datetime, tz: ZoneInfo) -> tuple[datetime, datetime]:
+    """UTC bounds of the calendar month in `tz` that contains `now`."""
+    return _month_bounds(_local_date(now, tz).replace(day=1), tz)
+
+
+class InvalidPeriod(ValueError):
+    """A period that is not ``YYYY-MM`` with a real month."""
+
+
+# ASCII digits only: `\d` would also accept other scripts' digits.
+_PERIOD = re.compile(r"([0-9]{4})-([0-9]{2})")
+
+
+def period_window(period: str, tz: ZoneInfo) -> tuple[datetime, datetime]:
+    """UTC bounds of the calendar month in `tz` named by `period` (``YYYY-MM``)."""
+    match = _PERIOD.fullmatch(period)
+    if match is None:
+        raise InvalidPeriod("period must look like YYYY-MM")
+    try:
+        first = date(int(match[1]), int(match[2]), 1)
+    except ValueError:  # year 0000 or month 00 / 13+
+        raise InvalidPeriod("period must look like YYYY-MM") from None
+    return _month_bounds(first, tz)
 
 
 def day_window(now: datetime, tz: ZoneInfo) -> tuple[datetime, datetime]:

@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 import psycopg
 
 from assistant_gateway.config import AppConfig, UseCaseConfig
-from assistant_gateway.periods import day_window, month_window
+from assistant_gateway.periods import day_window, month_window, period_window
 from assistant_gateway.pricing import Usage
 
 type CapName = Literal["app_monthly", "use_case_monthly", "user_daily"]
@@ -53,16 +53,19 @@ update assistant_gateway.ledger_entry
  where app = %(app)s and status = 'reserved' and created_at < %(stale_before)s
 """
 
-# One select for all three windows. The day window always lies inside the month window, so the
-# month bounds limit the rows scanned.
-_SPEND = """
-with entries as (
-    select use_case, end_user_id, created_at,
-           case status
+# The spend rule, in one place: what an entry counts towards a cap. Settled entries count their
+# actual cost; released entries nothing; reserved, expired and unknown ones their reservation.
+_COST = """case status
                when 'settled' then coalesce(actual_usd, reserved_usd)
                when 'released' then 0
                else reserved_usd
-           end as cost
+           end"""
+
+# One select for all three windows. The day window always lies inside the month window, so the
+# month bounds limit the rows scanned.
+_SPEND = f"""
+with entries as (
+    select use_case, end_user_id, created_at, {_COST} as cost
       from assistant_gateway.ledger_entry
      where app = %(app)s and created_at >= %(month_start)s and created_at < %(month_end)s
 )
@@ -75,14 +78,40 @@ select coalesce(sum(cost), 0),
   from entries
 """
 
-_APP_MONTH_SPEND = """
-select coalesce(sum(case status
-                        when 'settled' then coalesce(actual_usd, reserved_usd)
-                        when 'released' then 0
-                        else reserved_usd
-                    end), 0)
+_APP_MONTH_SPEND = f"""
+select coalesce(sum({_COST}), 0)
   from assistant_gateway.ledger_entry
  where app = %(app)s and created_at >= %(start)s and created_at < %(end)s
+"""
+
+# The usage report splits the same cost into its settled part and its still-reserved part.
+_SETTLED_USD = f"coalesce(sum({_COST}) filter (where status = 'settled'), 0)"
+_RESERVED_USD = (
+    f"coalesce(sum({_COST}) filter (where status in ('reserved', 'expired', 'unknown')), 0)"
+)
+
+_USAGE_TOTALS = f"""
+select {_SETTLED_USD}, {_RESERVED_USD}
+  from assistant_gateway.ledger_entry
+ where app = %(app)s and created_at >= %(start)s and created_at < %(end)s
+"""
+
+_USAGE_BY_USE_CASE = f"""
+select use_case, kind, count(*),
+       coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0),
+       coalesce(sum(audio_seconds), 0), {_SETTLED_USD}, {_RESERVED_USD}
+  from assistant_gateway.ledger_entry
+ where app = %(app)s and created_at >= %(start)s and created_at < %(end)s
+ group by use_case, kind
+ order by use_case, kind
+"""
+
+_USAGE_BY_END_USER = f"""
+select end_user_id, count(*), {_SETTLED_USD}, {_RESERVED_USD}
+  from assistant_gateway.ledger_entry
+ where app = %(app)s and created_at >= %(start)s and created_at < %(end)s
+ group by end_user_id
+ order by end_user_id
 """
 
 _INSERT = """
@@ -127,6 +156,36 @@ class BudgetSnapshot:
     cap_usd: Decimal
     warning: bool
     exhausted: bool
+
+
+@dataclass(frozen=True)
+class UseCaseUsage:
+    use_case: str
+    kind: str
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    audio_seconds: Decimal
+    settled_usd: Decimal
+    reserved_usd: Decimal
+
+
+@dataclass(frozen=True)
+class EndUserUsage:
+    end_user_id: str
+    calls: int
+    settled_usd: Decimal
+    reserved_usd: Decimal
+
+
+@dataclass(frozen=True)
+class UsageReport:
+    period: str
+    app: str
+    settled_usd: Decimal
+    reserved_usd: Decimal
+    by_use_case: list[UseCaseUsage]
+    by_end_user: list[EndUserUsage]
 
 
 def reserve(
@@ -261,6 +320,37 @@ def snapshot(
         cap_usd=cap_usd,
         warning=used >= warn_at * cap_usd,
         exhausted=used >= cap_usd,
+    )
+
+
+def usage_report(
+    conn: psycopg.Connection[Any], *, app: str, period: str, tz: ZoneInfo
+) -> UsageReport:
+    """The app's calls, tokens, audio and cost in `period` (``YYYY-MM``, a month in `tz`).
+
+    `settled_usd` is what settled calls cost; `reserved_usd` is what reserved, expired and unknown
+    calls still hold. Released calls are counted in `calls` and cost nothing. Raises
+    `periods.InvalidPeriod` when `period` is not ``YYYY-MM``.
+
+    The three queries run in one repeatable-read transaction, so the totals and both breakdowns
+    describe the same moment.
+    """
+    _require_autocommit(conn)
+    start, end = period_window(period, tz)
+    params = {"app": app, "start": start, "end": end}
+    with conn.transaction():
+        conn.execute("set transaction isolation level repeatable read read only")
+        totals = conn.execute(_USAGE_TOTALS, params).fetchone()
+        by_use_case = conn.execute(_USAGE_BY_USE_CASE, params).fetchall()
+        by_end_user = conn.execute(_USAGE_BY_END_USER, params).fetchall()
+    assert totals is not None
+    return UsageReport(
+        period=period,
+        app=app,
+        settled_usd=totals[0],
+        reserved_usd=totals[1],
+        by_use_case=[UseCaseUsage(*row) for row in by_use_case],
+        by_end_user=[EndUserUsage(*row) for row in by_end_user],
     )
 
 

@@ -68,3 +68,48 @@ def test_naive_now_is_rejected() -> None:
         month_window(datetime(2026, 11, 27), CAIRO)
     with pytest.raises(ValueError, match="timezone-aware"):
         day_window(datetime(2026, 11, 27), CAIRO)
+
+
+def test_period_window_is_the_calendar_month_in_the_app_timezone() -> None:
+    from assistant_gateway.periods import period_window
+
+    assert period_window("2026-11", CAIRO) == (
+        datetime(2026, 10, 31, 22, 0, tzinfo=UTC),
+        datetime(2026, 11, 30, 22, 0, tzinfo=UTC),
+    )
+    # 1 Oct 00:00 Cairo is still on summer time (UTC+3).
+    assert period_window("2026-10", CAIRO)[0] == datetime(2026, 9, 30, 21, 0, tzinfo=UTC)
+    # December rolls into the next year.
+    assert period_window("2026-12", CAIRO)[1] == datetime(2026, 12, 31, 22, 0, tzinfo=UTC)
+
+
+def test_period_window_agrees_with_month_window() -> None:
+    from assistant_gateway.periods import period_window
+
+    now = datetime(2026, 11, 15, 12, 0, tzinfo=CAIRO)
+    assert period_window("2026-11", CAIRO) == month_window(now, CAIRO)
+
+
+@pytest.mark.parametrize(
+    "period",
+    [
+        "",
+        "2026",
+        "2026-1",
+        "2026-00",
+        "2026-13",
+        "0000-05",
+        "26-11",
+        "2026-11-01",
+        "2026-11\n",
+        " 2026-11",
+        "2026/11",
+        "٢٠٢٦-١١",
+        "abcd-ef",
+    ],
+)
+def test_period_window_rejects_anything_but_yyyy_mm(period: str) -> None:
+    from assistant_gateway.periods import InvalidPeriod, period_window
+
+    with pytest.raises(InvalidPeriod):
+        period_window(period, CAIRO)

@@ -17,6 +17,7 @@ from assistant_gateway.routes.health import router as health_router
 from assistant_gateway.routes.llm import router as llm_router
 from assistant_gateway.routes.speech import router as speech_router
 from assistant_gateway.routes.status import router as status_router
+from assistant_gateway.routes.usage import router as usage_router
 from assistant_gateway.settings import Settings, get_settings
 
 
@@ -44,6 +45,7 @@ def create_app(
     configure_rate_limiting(app)
     app.include_router(health_router)
     app.include_router(status_router)
+    app.include_router(usage_router)
     app.include_router(llm_router)
     app.include_router(speech_router)
     return app

@@ -17,6 +17,18 @@ const problems = files.flatMap((file) =>
     .filter(([line]) => THIRD_PARTY.test(line) && !line.trim().startsWith('#'))
     .map(([, n]) => `${file}:${n} loads or allows a third-party font host`),
 );
+// The policy itself: fonts only from this origin, and no external stylesheet that could pull a font
+// in some other way, whatever the host is called.
+const csp = readFileSync(join(root, '../../infra/nginx/security-headers.inc'), 'utf8').match(/Content-Security-Policy "([^"]*)"/)?.[1];
+const sources = (name) => csp?.split(';').map((d) => d.trim().split(/\s+/)).find(([d]) => d === name)?.slice(1);
+if (!csp) {
+  problems.push('infra/nginx/security-headers.inc: no Content-Security-Policy found');
+} else {
+  if (sources('font-src')?.join(' ') !== "'self'") problems.push(`CSP font-src must be exactly 'self' (is: ${sources('font-src')?.join(' ') ?? 'missing'})`);
+  const extraStyles = (sources('style-src') ?? []).filter((s) => !["'self'", "'unsafe-inline'"].includes(s));
+  if (extraStyles.length) problems.push(`CSP style-src allows ${extraStyles.join(' ')}: stylesheets come from this origin only`);
+}
+
 if (problems.length) {
   for (const p of problems) console.error(p);
   process.exit(1);

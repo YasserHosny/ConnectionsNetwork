@@ -12,6 +12,11 @@
     "lint": {
       "dependsOn": [],
       "outputs": []
+    },
+    "web#lint": {
+      "dependsOn": [],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/infra/nginx/security-headers.inc"],
+      "outputs": []
     }
   }
 }

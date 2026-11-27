@@ -195,7 +195,7 @@ describe('UnreachablePage', () => {
     );
     await settle();
 
-    expect(router.url).toBe('/mfa');
+    expect(router.url.split('?')[0]).toBe('/mfa');
     // The router moved on, but a dialog does not close on that by itself: it must not stay open over /mfa.
     await waitFor(fixture(), () => !dialog());
     expect(dialog()).toBeNull();
@@ -213,7 +213,7 @@ describe('UnreachablePage', () => {
     );
     await settle();
 
-    await waitFor(fixture(), () => router.url === '/login');
+    await waitFor(fixture(), () => router.url.split('?')[0] === '/login');
     await waitFor(fixture(), () => !dialog());
     expect(dialog()).toBeNull();
   });

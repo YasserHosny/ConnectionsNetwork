@@ -4,7 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { TranslatePipe } from '@ngx-translate/core';
+import { TranslatePipe, TranslateService } from '@ngx-translate/core';
 import type {
   AlternativePath,
   AvailableFor,
@@ -74,6 +74,7 @@ const PATH_COUNT = 4;
       }
       @case ('notFound') {
         <p class="error" role="alert">{{ 'person.errors.notFound' | translate }}</p>
+        <a mat-stroked-button class="back-to-search" routerLink="/search">{{ 'person.view.backToSearch' | translate }}</a>
       }
       @case ('failed') {
         <p class="error" role="alert">{{ 'person.view.loadFailed' | translate }}</p>
@@ -90,7 +91,7 @@ const PATH_COUNT = 4;
             </p>
           }
           <header class="header">
-            <h1>{{ p.display_name }}</h1>
+            <h1 dir="auto">{{ p.display_name }}</h1>
             @if (p.name_ar && p.name_latin) {
               <p class="other-name" dir="auto">{{ p.name_latin }}</p>
             }
@@ -242,12 +243,14 @@ const PATH_COUNT = 4;
                 <ul class="connections">
                   @for (connection of p.connections; track connection.id) {
                     <li>
-                      <a [routerLink]="['/people', connection.person_id]">{{ connection.display_name }}</a>
+                      <a [routerLink]="['/people', connection.person_id]" dir="auto">{{
+                        isMine(connection) ? ('search.path.you' | translate) : connection.display_name
+                      }}</a>
                       <select
                         class="connection-strength"
                         [disabled]="busy()"
                         [attr.aria-label]="
-                          'person.view.connectionStrength' | translate: { name: (connection.display_name | isolate) }
+                          'person.view.connectionStrength' | translate: { name: (connectionName(connection) | isolate) }
                         "
                         (change)="changeStrength(connection, $event)"
                       >
@@ -266,7 +269,7 @@ const PATH_COUNT = 4;
                         class="remove-connection"
                         [disabled]="busy()"
                         [attr.aria-label]="
-                          'person.view.removeConnection' | translate: { name: (connection.display_name | isolate) }
+                          'person.view.removeConnection' | translate: { name: (connectionName(connection) | isolate) }
                         "
                         (click)="removeConnection(connection)"
                       >
@@ -438,6 +441,7 @@ export class PersonPage {
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
   private readonly auth = inject(AuthService);
+  private readonly translate = inject(TranslateService);
   private readonly locale = inject(LocaleService);
 
   protected readonly id = signal('');
@@ -512,7 +516,9 @@ export class PersonPage {
       },
       error: (failure: unknown) => {
         if (!current()) return;
-        this.state.set(toApiError(failure).code === 'not_found' ? 'notFound' : 'failed');
+        // A malformed id (422) can never load either: say not found, not "try again".
+        const code = toApiError(failure).code;
+        this.state.set(code === 'not_found' || code.startsWith('validation.') ? 'notFound' : 'failed');
       },
     });
     this.pathsState.set('loading');
@@ -598,12 +604,23 @@ export class PersonPage {
     });
   }
 
+  /** The admin's own connection to this person: shown as "You", as in the path line. */
+  protected isMine(connection: ConnectionOut): boolean {
+    return connection.person_id === this.auth.personId();
+  }
+
+  protected connectionName(connection: ConnectionOut): string {
+    return this.isMine(connection) ? this.translate.instant('search.path.you') : connection.display_name;
+  }
+
   protected removeConnection(connection: ConnectionOut): void {
+    // Your own connection is asked about in your words, naming the person on this page.
+    const mine = this.isMine(connection);
     const data: ConfirmDialogData = {
-      titleKey: 'person.view.removeConnectionDialog.title',
-      bodyKey: 'person.view.removeConnectionDialog.body',
+      titleKey: mine ? 'person.view.removeOwnConnectionDialog.title' : 'person.view.removeConnectionDialog.title',
+      bodyKey: mine ? 'person.view.removeOwnConnectionDialog.body' : 'person.view.removeConnectionDialog.body',
       confirmKey: 'person.view.removeConnectionDialog.confirm',
-      params: { name: isolate(connection.display_name) },
+      params: { name: isolate(mine ? (this.person()?.display_name ?? '') : connection.display_name) },
       destructive: true,
     };
     this.dialog

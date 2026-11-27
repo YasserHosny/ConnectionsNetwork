@@ -46,7 +46,7 @@ interface Outcome {
 
       <p class="selected">
         @if (value(); as target) {
-          <span>{{ target.name }}</span>
+          <span dir="auto">{{ target.name }}</span>
           <button mat-button type="button" class="reset" [disabled]="disabled()" (click)="reset()">
             {{ resetKey() | translate }}
           </button>
@@ -76,7 +76,7 @@ interface Outcome {
           @for (result of results(); track result.person_id) {
             <li>
               <button type="button" [disabled]="disabled()" (click)="pick(result)">
-                <span>{{ result.display_name }}</span>
+                <span dir="auto">{{ result.display_name }}</span>
                 @if (detail(result); as text) {
                   <small>{{ text }}</small>
                 }

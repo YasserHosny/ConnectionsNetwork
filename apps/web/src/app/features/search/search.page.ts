@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -61,6 +61,7 @@ type Outcome =
         <mat-form-field appearance="outline" subscriptSizing="dynamic" class="query">
           <mat-label>{{ 'search.queryLabel' | translate }}</mat-label>
           <input
+            #queryInput
             matInput
             type="search"
             name="q"
@@ -77,8 +78,16 @@ type Outcome =
         </button>
       </div>
 
+      <!-- Folded on a phone unless one is set, so the results are not pushed below six fields. -->
+      <details class="filters-panel" [open]="filtersOpen()" (toggle)="onFiltersToggle($event)">
+        <summary>
+          {{ 'search.filtersTitle' | translate }}
+          @if (activeFilters()) {
+            <span class="active-count">({{ activeFilters() }})</span>
+          }
+        </summary>
       <fieldset class="filters">
-        <legend>{{ 'search.filtersTitle' | translate }}</legend>
+        <legend class="cdk-visually-hidden">{{ 'search.filtersTitle' | translate }}</legend>
 
         <mat-form-field appearance="outline" subscriptSizing="dynamic">
           <mat-label>{{ 'search.filters.category' | translate }}</mat-label>
@@ -130,6 +139,7 @@ type Outcome =
           <input matInput name="city" formControlName="city" autocomplete="off" />
         </mat-form-field>
       </fieldset>
+      </details>
     </form>
 
     <section class="outcome" aria-live="polite">
@@ -156,7 +166,7 @@ type Outcome =
           <p class="no-results">{{ 'search.noResults' | translate }}</p>
         }
       } @else if (!contactHint()) {
-        <p class="idle">{{ 'search.idle' | translate }}</p>
+        <p class="idle" [attr.role]="nudged() ? 'status' : null">{{ 'search.idle' | translate }}</p>
       }
     </section>
   `,
@@ -187,6 +197,14 @@ type Outcome =
       padding: 0;
       border: 0;
       min-inline-size: 0;
+    }
+    .filters-panel > summary {
+      margin-block-end: 8px;
+      font: var(--mat-sys-title-small);
+      cursor: pointer;
+    }
+    .active-count {
+      color: var(--mat-sys-primary);
     }
     legend {
       padding: 0;
@@ -237,12 +255,22 @@ export class SearchPage {
   protected readonly searched = signal(false);
   protected readonly errorKey = signal<string | null>(null);
   protected readonly contactHint = signal(false);
+  /** Search was pressed with nothing to search: the hint is announced and the text field focused. */
+  protected readonly nudged = signal(false);
+  protected readonly filtersOpen = signal(window.matchMedia('(min-width: 720px)').matches);
+  protected readonly activeFilters = signal(0);
+  private readonly queryInput = viewChild<ElementRef<HTMLInputElement>>('queryInput');
 
   private readonly searches = new Subject<SearchFilters | null>();
   /** A contact-like query was just taken out of the URL: keep saying why across that redirect. */
   private hintCarriesOver = false;
 
   constructor() {
+    this.form.valueChanges.pipe(takeUntilDestroyed()).subscribe(() => {
+      const filters: Partial<SearchFilters> = { ...this.form.getRawValue() };
+      delete filters.q;
+      this.activeFilters.set(Object.values(filters).filter((v) => v !== '').length);
+    });
     this.searches
       .pipe(
         switchMap((filters) => this.run(filters)),
@@ -253,6 +281,7 @@ export class SearchPage {
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
       const { filters, contactLike } = filtersFromParams(params);
       this.form.setValue(filters);
+      if (this.activeFilters()) this.filtersOpen.set(true);
       this.contactHint.set(contactLike || this.hintCarriesOver);
       this.hintCarriesOver = contactLike;
       if (contactLike) {
@@ -271,6 +300,27 @@ export class SearchPage {
   protected submit(): void {
     const filters = this.form.getRawValue() as SearchFilters;
     this.contactHint.set(false);
+    if (!hasCriteria(filters)) {
+      this.nudged.set(true);
+      this.queryInput()?.nativeElement.focus();
+      return;
+    }
+    this.nudged.set(false);
+    this.go(filters);
+  }
+
+  protected onFiltersToggle(event: Event): void {
+    this.filtersOpen.set((event.target as HTMLDetailsElement).open);
+  }
+
+  protected clear(): void {
+    this.nudged.set(false);
+    this.form.setValue(EMPTY_FILTERS);
+    this.go(EMPTY_FILTERS);
+  }
+
+  /** Puts the filters in the URL (which runs the search), or searches again when it is unchanged. */
+  private go(filters: SearchFilters): void {
     if (hasContactValue(filters)) {
       this.contactHint.set(true);
       this.searches.next(null);
@@ -286,11 +336,6 @@ export class SearchPage {
     } else {
       void this.router.navigateByUrl(next);
     }
-  }
-
-  protected clear(): void {
-    this.form.setValue(EMPTY_FILTERS);
-    this.submit();
   }
 
   private run(filters: SearchFilters | null): Observable<Outcome> {

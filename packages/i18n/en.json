@@ -179,6 +179,11 @@
         "body": "{{name}} stays in your network; only this connection is removed, and with it any path that went through it.",
         "confirm": "Remove"
       },
+      "removeOwnConnectionDialog": {
+        "title": "Remove your connection with {{name}}?",
+        "body": "{{name}} stays in your network; only your direct connection is removed, and with it any path that went through it."
+      },
+      "backToSearch": "Back to search",
       "connectionAdded": "Connection added.",
       "connectionUpdated": "Connection updated.",
       "connectionRemoved": "Connection removed.",
@@ -290,7 +295,7 @@
       }
     },
     "stale": {
-      "intro": "These people have not been confirmed for over a year. Confirm that their details are right, or edit them. \"Send update link\" gives them a link to add the people they know, with a message asking them to reply with any change to their own details, so you can edit it.",
+      "intro": "Not confirmed for over a year: confirm their details or edit them. \"Send update link\" asks them to send you any change, and lets them add people they know.",
       "empty": "Everyone is up to date.",
       "confirm": "Confirm",
       "confirming": "Confirming…",

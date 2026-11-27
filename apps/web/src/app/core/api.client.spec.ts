@@ -163,6 +163,26 @@ describe('ApiClient', () => {
       expect(navigate).toHaveBeenCalledWith('/mfa');
     });
 
+    it('comes back to the page the admin was on, after signing in again', async () => {
+      spyOnProperty(TestBed.inject(Router), 'url', 'get').and.returnValue('/people/p-7');
+      api.get('/people/p-7').subscribe({ error: () => undefined });
+
+      http.expectOne('/api/v1/people/p-7').flush(envelope('auth.unauthenticated'), { status: 401, statusText: 'x' });
+      await Promise.resolve();
+      await auth.signOut.calls.mostRecent().returnValue;
+
+      expect(navigate).toHaveBeenCalledWith('/login?next=%2Fpeople%2Fp-7');
+    });
+
+    it('comes back after the MFA step too', () => {
+      spyOnProperty(TestBed.inject(Router), 'url', 'get').and.returnValue('/review/stale');
+      api.post('/connections', {}).subscribe({ error: () => undefined });
+
+      http.expectOne('/api/v1/connections').flush(envelope('mfa_required'), { status: 403, statusText: 'x' });
+
+      expect(navigate).toHaveBeenCalledWith('/mfa?next=%2Freview%2Fstale');
+    });
+
     it('leaves any other failure to the page', () => {
       api.get('/x').subscribe({ error: () => undefined });
 

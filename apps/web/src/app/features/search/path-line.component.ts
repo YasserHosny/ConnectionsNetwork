@@ -19,7 +19,7 @@ import { IsolatePipe } from '../../core/bidi';
       @for (node of others(); track $index) {
         <li>
           <span class="sep" aria-hidden="true">←</span>
-          <a [routerLink]="['/people', node.person_id]">{{ node.display_name }}</a>
+          <a dir="auto" [routerLink]="['/people', node.person_id]">{{ node.display_name }}</a>
         </li>
       }
     </ol>
@@ -43,6 +43,9 @@ import { IsolatePipe } from '../../core/bidi';
     }
     .sep {
       color: var(--mat-sys-on-surface-variant);
+    }
+    a {
+      color: var(--mat-sys-primary);
     }
     :host-context([dir='rtl']) .sep {
       display: inline-block;

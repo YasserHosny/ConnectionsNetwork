@@ -73,7 +73,7 @@ const MATCH_KEYS: Record<DuplicatePair['matched_on'][number], string> = {
                   <section class="side">
                     <p class="record">{{ 'review.duplicates.record' | translate: { n: first ? 1 : 2 } }}</p>
                     <h2 class="side-name" [id]="'dup-' + i + (first ? '-a' : '-b')">
-                      <a class="name" [routerLink]="['/people', side.keep.person_id]">{{ side.keep.display_name }}</a>
+                      <a class="name" dir="auto" [routerLink]="['/people', side.keep.person_id]">{{ side.keep.display_name }}</a>
                     </h2>
                     @if (detail(side.keep); as text) {
                       <p class="detail">{{ text }}</p>

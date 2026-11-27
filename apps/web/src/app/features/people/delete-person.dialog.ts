@@ -16,7 +16,7 @@ export interface DeletePersonDialogData {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h2 mat-dialog-title>{{ 'person.view.deleteDialog.title' | translate: { name: (data.name | isolate) } }}</h2>
-    <mat-dialog-content>{{ 'person.view.deleteDialog.body' | translate }}</mat-dialog-content>
+    <mat-dialog-content class="confirm-body">{{ 'person.view.deleteDialog.body' | translate }}</mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button type="button" class="dialog-cancel" [mat-dialog-close]="false" cdkFocusInitial>
         {{ 'person.view.deleteDialog.cancel' | translate }}

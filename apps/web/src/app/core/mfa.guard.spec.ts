@@ -36,11 +36,17 @@ describe('mfaGuard', () => {
   it('redirects aal1 to /mfa', () => {
     auth.current.set(fakeSession('aal1'));
 
-    expect(redirectTarget(run('/search'))).toBe('/mfa');
+    expect(redirectTarget(run('/search'))).toBe('/mfa?next=%2Fsearch');
   });
 
   it('redirects no session to /login', () => {
-    expect(redirectTarget(run('/search'))).toBe('/login');
+    expect(redirectTarget(run('/search'))).toBe('/login?next=%2Fsearch');
+  });
+
+  it('remembers where the admin was going, for after signing in', () => {
+    expect(redirectTarget(run('/people/p-7'))).toBe('/login?next=%2Fpeople%2Fp-7');
+    auth.current.set(fakeSession('aal1'));
+    expect(redirectTarget(run('/people/p-7'))).toBe('/mfa?next=%2Fpeople%2Fp-7');
   });
 
   it('allows aal2', () => {
@@ -66,7 +72,7 @@ describe('mfaGuard', () => {
   });
 
   it('does not treat a path that merely starts with /c as the contributor page', () => {
-    expect(redirectTarget(run('/contacts'))).toBe('/login');
-    expect(redirectTarget(run('/login-help'))).toBe('/login');
+    expect(redirectTarget(run('/contacts'))).toBe('/login?next=%2Fcontacts');
+    expect(redirectTarget(run('/login-help'))).toBe('/login?next=%2Flogin-help');
   });
 });

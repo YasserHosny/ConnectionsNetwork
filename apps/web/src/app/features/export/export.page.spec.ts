@@ -131,6 +131,6 @@ describe('ExportPage', () => {
       { status: 403, statusText: 'Forbidden' },
     );
 
-    await waitFor(fixture(), () => router.url === '/mfa');
+    await waitFor(fixture(), () => router.url.split('?')[0] === '/mfa');
   });
 });

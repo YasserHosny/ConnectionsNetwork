@@ -49,7 +49,7 @@ describe('app routes', () => {
   it('sends a signed-out visitor from the app to /login', async () => {
     await harness.navigateByUrl('/search');
 
-    expect(url()).toBe('/login');
+    expect(url()).toBe('/login?next=%2Fsearch');
   });
 
   it('sends a password-only session from the app to /mfa', async () => {
@@ -58,7 +58,7 @@ describe('app routes', () => {
 
     await harness.navigateByUrl('/review');
 
-    expect(url()).toBe('/mfa');
+    expect(url()).toBe('/mfa?next=%2Freview%2Fduplicates');
   });
 
   it('shows the shell and the requested page at aal2', async () => {

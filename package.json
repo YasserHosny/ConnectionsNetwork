@@ -9,6 +9,8 @@
     "lint": "turbo run lint",
     "test:api": "uv run --project apps/api pytest",
     "lint:api": "uv run --project apps/api ruff check apps/api",
+    "test:gateway": "uv run --project apps/assistant-gateway pytest apps/assistant-gateway/tests",
+    "lint:gateway": "uv run --project apps/assistant-gateway ruff check apps/assistant-gateway",
     "db:test": "bash scripts/test-db.sh"
   },
   "devDependencies": {

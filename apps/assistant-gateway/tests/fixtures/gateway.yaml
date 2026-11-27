@@ -1,0 +1,61 @@
+# Test configuration. Obviously fake: the key hashes come from the environment (tests/conftest.py).
+pricing:
+  claude-haiku-4-5: {input: 1.00, output: 5.00, cache_write: 1.25, cache_read: 0.10}
+  claude-sonnet-5-5: {input: 3.00, output: 15.00, cache_write: 3.75, cache_read: 0.30}
+  speech:
+    openai: {per_minute: 0.006}
+    elevenlabs: {per_minute: 0.006}
+
+providers:
+  anthropic: {api_key_env: ANTHROPIC_API_KEY}
+  openai: {api_key_env: OPENAI_API_KEY, model: test-transcribe}
+  elevenlabs: {api_key_env: ELEVENLABS_API_KEY, model: test-scribe}
+
+apps:
+  connections:
+    key_hash_env: AG_TEST_CONNECTIONS_KEY_HASH
+    timezone: Africa/Cairo
+    budget: {monthly_cap_usd: 5.00, per_user_daily_cap_usd: 1.00, warn_at: 0.8}
+    use_cases:
+      person_add:
+        model: claude-haiku-4-5
+        max_output_tokens: 2000
+        speech: {mode: browser, language: ar-EG}
+      trial:
+        model: per-request
+        effort: low
+        max_output_tokens: 1000
+      capped:
+        model: claude-haiku-4-5
+        max_output_tokens: 2000
+        cap_usd: 0.01
+      short:
+        model: claude-haiku-4-5
+        max_output_tokens: 100
+        max_input_chars: 50
+      dictate:
+        model: claude-haiku-4-5
+        max_output_tokens: 100
+        speech: {mode: server, provider: openai, language: ar}
+        max_audio_seconds: 60
+      dictate_trial:
+        model: claude-haiku-4-5
+        max_output_tokens: 100
+        speech: {mode: server, provider: per-request}
+      dictate_capped:
+        model: claude-haiku-4-5
+        max_output_tokens: 100
+        cap_usd: 0.0001
+        speech: {mode: server, provider: openai}
+      dictate_eleven:
+        model: claude-haiku-4-5
+        max_output_tokens: 100
+        speech: {mode: server, provider: elevenlabs}
+  other-app:
+    key_hash_env: AG_TEST_OTHER_KEY_HASH
+    timezone: Africa/Cairo
+    budget: {monthly_cap_usd: 5.00, warn_at: 0.8}
+    use_cases:
+      person_add:
+        model: claude-haiku-4-5
+        max_output_tokens: 2000

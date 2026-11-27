@@ -1,7 +1,12 @@
-# The two images the deploy builds, for running the stack locally: api (FastAPI) and web (Angular
-# behind Nginx, which also proxies /api to the api). There is no database service: the api needs
+# The three images the deploy builds, for running the stack locally: api (FastAPI), web (Angular
+# behind Nginx, which also proxies /api to the api) and assistant-gateway (the LLM and speech
+# proxy; the api does not call it yet). There is no database service: the api needs
 # a Postgres reachable through DATABASE_URL, with a Supabase project (hosted, or local via
 # `supabase start`) behind SUPABASE_URL. Configuration comes from .env (copy .env.example).
+#
+# Each service gets only the variables it reads, interpolated from .env, never the whole file: the
+# gateway must not see the api's DATABASE_URL, nor the api the gateway's database URL and provider
+# keys. A variable added to a service's settings must be added to its list here too.
 #
 #   docker compose up --build        # http://localhost:4200
 services:
@@ -10,14 +15,45 @@ services:
       context: .
       dockerfile: infra/docker/api.Dockerfile
     container_name: connections-api
-    env_file:
-      - .env
     environment:
+      # apps/api/src/connections_api/config.py reads these.
+      API_ENV: ${API_ENV}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE}
+      SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER}
+      # Optional, and passed through without a value on purpose: unset in .env, it stays unset in
+      # the container. Interpolated, it would arrive as an empty string, which the api would take
+      # as an HS256 secret of "" rather than as no secret.
+      SUPABASE_JWT_SECRET:
+      DATABASE_URL: ${DATABASE_URL}
+      WEB_PUBLIC_URL: ${WEB_PUBLIC_URL}
       # Nginx is a different container here, so its address is on the compose network, not
       # localhost (the image default). Never "*".
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
     ports:
       - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  assistant-gateway:
+    build:
+      context: .
+      dockerfile: infra/docker/assistant-gateway.Dockerfile
+    container_name: assistant-gateway
+    environment:
+      # apps/assistant-gateway/src/assistant_gateway/settings.py reads the AG_* settings.
+      AG_ENV: ${AG_ENV}
+      AG_CONFIG_PATH: /app/config/local.yaml
+      AG_DATABASE_URL: ${AG_DATABASE_URL}
+      # The key_hash_env and api_key_env names in config/local.yaml. ELEVENLABS_API_KEY is named
+      # there too, but no adapter reads it yet.
+      AG_CONNECTIONS_KEY_HASH: ${AG_CONNECTIONS_KEY_HASH}
+      AG_TRIAL_KEY_HASH: ${AG_TRIAL_KEY_HASH}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports:
+      - "127.0.0.1:8100:8100"
     restart: unless-stopped
 
   web:

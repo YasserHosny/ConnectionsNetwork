@@ -1,3 +1,6 @@
 # Fake contributor tokens used as fixtures in web specs (T0KEN_abc-123_SECRET); not real credentials.
 b031d8bba91d9433f6746731ee90fbc15c331671:apps/web/src/app/features/contribute/contribute-api.spec.ts:generic-api-key:3
 0493c4757c558a39f1d48970d300c0898ebf1c3d:apps/web/src/app/features/contribute/contribute.page.spec.ts:generic-api-key:16
+# Fake 64-hex key hashes ("0123456789abcdef" * 4) in the gateway's config-file tests; not real credentials.
+1105ecfb7d8e91f0b5ca14fe8e07a521adc04407:apps/assistant-gateway/tests/unit/test_config_file.py:generic-api-key:24
+1105ecfb7d8e91f0b5ca14fe8e07a521adc04407:apps/assistant-gateway/tests/unit/test_config_file.py:generic-api-key:25

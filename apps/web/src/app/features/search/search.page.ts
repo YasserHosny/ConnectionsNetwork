@@ -87,7 +87,7 @@ type Outcome =
           }
         </summary>
       <fieldset class="filters">
-        <legend class="cdk-visually-hidden">{{ 'search.filtersTitle' | translate }}</legend>
+        <legend class="visually-hidden">{{ 'search.filtersTitle' | translate }}</legend>
 
         <mat-form-field appearance="outline" subscriptSizing="dynamic">
           <mat-label>{{ 'search.filters.category' | translate }}</mat-label>

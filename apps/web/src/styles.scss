@@ -37,6 +37,24 @@ h1 {
   font: var(--mat-sys-headline-small);
 }
 
+// Text for screen readers only (the CDK's prebuilt class is not loaded in this app).
+.visually-hidden {
+  position: absolute !important;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+// While the "new version" banner shows, the page can scroll its last control (Save) above it.
+body.update-banner-open {
+  padding-block-end: 120px;
+}
+
 // A confirmation is a sentence or two: with a fallback font its glyphs can poke a few pixels past
 // the content box, which gave two-line dialogs a needless scrollbar. The dialog surface still
 // scrolls if a body is ever too tall for the window.

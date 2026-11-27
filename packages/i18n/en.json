@@ -1,5 +1,10 @@
 {
   "common": {
+    "update": {
+      "ready": "A new version is ready.",
+      "reload": "Reload",
+      "later": "Later"
+    },
     "appName": "Connections",
     "retry": "Try again",
     "loading": "Loading…",
@@ -174,6 +179,8 @@
       "addConnection": "Add connection",
       "connectionStrength": "Strength of the connection with {{name}}",
       "removeConnection": "Remove the connection with {{name}}",
+      "removeOwnConnection": "Remove your connection",
+      "connectionStrengthOwn": "Strength of your connection",
       "removeConnectionDialog": {
         "title": "Remove the connection with {{name}}?",
         "body": "{{name}} stays in your network; only this connection is removed, and with it any path that went through it.",

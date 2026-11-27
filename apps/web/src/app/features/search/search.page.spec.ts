@@ -152,6 +152,16 @@ describe('SearchPage', () => {
       expect(panel().querySelector('summary')?.textContent).toContain('2');
     });
 
+    it('say "Filters" once: the fieldset legend is only for screen readers', async () => {
+      narrow(true);
+      await open();
+
+      const legend = el().querySelector('fieldset.filters legend') as HTMLElement;
+      expect(legend.textContent).toContain('Filters');
+      expect(getComputedStyle(legend).position).toBe('absolute');
+      expect(legend.getBoundingClientRect().width).toBeLessThanOrEqual(1);
+    });
+
     it('stay open on a wider screen', async () => {
       narrow(true);
       await open();

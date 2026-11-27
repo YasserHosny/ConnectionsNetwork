@@ -759,10 +759,10 @@ export class PersonFormComponent implements OnInit {
     const generation = this.drafts.generation;
     this.busy.set(true);
     this.error.set(null);
-    // A create is kept with its key before it leaves: if the page reloads while it is in flight,
-    // the restored draft is that same submission (locked, retried with the key), not a new one.
+    // Kept before it leaves: if the page reloads while it is in flight, a create comes back as that
+    // same submission (locked, retried with its key), an edit as what was being saved.
     this.typedPending = false;
-    if (this.mode() === 'add' && generation === this.openedGeneration) this.saveDraft(value, key);
+    if (generation === this.openedGeneration) this.saveDraft(value, key);
     // Cancelled with the form: a save still pending when the page goes away must not write a
     // draft or emit afterwards.
     this.submitter()(value, key, retry)

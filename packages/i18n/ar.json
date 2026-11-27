@@ -1,5 +1,10 @@
 {
   "common": {
+    "update": {
+      "ready": "يتوفر إصدار جديد.",
+      "reload": "إعادة التحميل",
+      "later": "لاحقًا"
+    },
     "appName": "شبكة المعارف",
     "retry": "حاول مرة أخرى",
     "loading": "جارٍ التحميل…",
@@ -174,6 +179,8 @@
       "addConnection": "إضافة علاقة",
       "connectionStrength": "قوة العلاقة مع {{name}}",
       "removeConnection": "إزالة العلاقة مع {{name}}",
+      "removeOwnConnection": "إزالة علاقتك",
+      "connectionStrengthOwn": "قوة علاقتك",
       "removeConnectionDialog": {
         "title": "إزالة العلاقة مع {{name}}؟",
         "body": "لن يُحذف {{name}} من شبكتك؛ تُزال هذه العلاقة فقط، ومعها أي مسار كان يمر بها.",

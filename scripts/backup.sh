@@ -8,9 +8,12 @@
 #                                 HTTP answer), so the project does not pause after 7 days without
 #                                 activity (Free plan)
 #
-# Everything comes from the environment and nothing is echoed. The dump is streamed straight
-# into age: no plaintext copy of the data is ever written to disk. Only the age PUBLIC key is
-# here; the private key stays offline with the owner.
+# Everything comes from the environment and nothing is echoed. The repository is public, and so
+# are its Actions logs: GitHub masks a secret only as the whole string, so a host or user name
+# that a tool prints out of a secret URL would be readable by anyone. pg_dump's messages are
+# therefore redacted before they are printed, and the Supabase check prints curl's exit code, not
+# its message. The dump is streamed straight into age: no plaintext copy of the data is ever
+# written to disk. Only the age PUBLIC key is here; the private key stays offline with the owner.
 #
 #   backup:     DATABASE_URL_SESSION  session pooler URL (port 5432), not the transaction pooler
 #               BACKUP_AGE_RECIPIENT  age public key (age1...)
@@ -39,6 +42,38 @@ require_env() {
   for name in "$@"; do
     [ -n "${!name:-}" ] || die "$name is not set"
   done
+}
+
+# Prints pg_dump's messages (file $1) without what identifies the server: libpq quotes the host, user and
+# database ("connection to server at "<host>" (<address>), port 5432 failed: ... for user
+# "postgres.<ref>""), so every quoted string goes, and so do addresses, URLs and pooler-style
+# names in case one is printed unquoted. What remains (the error's kind, the port) is enough to
+# tell a wrong password from an unreachable host. If the session URL's own host or user still
+# shows after that, nothing of the message is printed.
+redact_pg_messages() {
+  local url="$DATABASE_URL_SESSION" rest userinfo user host redacted
+  rest="${url#*://}"
+  rest="${rest%%[/?]*}"
+  host="${rest##*@}"
+  host="${host%:*}"
+  user=""
+  if [[ "$rest" == *@* ]]; then
+    userinfo="${rest%@*}"
+    user="${userinfo%%:*}"
+  fi
+  redacted="$(sed -E \
+    -e 's#[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]]*#<url>#g' \
+    -e 's/"[^"]*"/"<redacted>"/g' \
+    -e 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<address>/g' \
+    -e 's/\([0-9A-Fa-f]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:]*\)/(<address>)/g' \
+    -e 's/[A-Za-z0-9.-]+\.supabase\.(com|co)/<host>/g' \
+    -e 's/postgres\.[A-Za-z0-9]+/postgres.<ref>/g' \
+    "$1" | sed -n '1,20p')"
+  if { [ -n "$host" ] && [[ "$redacted" == *"$host"* ]]; } ||
+    { [ -n "$user" ] && [[ "$redacted" == *"$user"* ]]; }; then
+    redacted="(withheld: the messages still named the server or the user)"
+  fi
+  printf '%s\n' "$redacted"
 }
 
 storage_url() {
@@ -73,14 +108,30 @@ cmd_backup() {
 
   local name
   name="connections-$(date -u +%F).dump.age"
-  # Global, not local: the EXIT trap runs after this function has returned.
-  out="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/$name"
   umask 077
-  # Remove the encrypted file on every exit: it holds all contact data, even if only encrypted.
-  trap 'rm -f -- "$out"' EXIT
+  # A fresh private directory per run (mode 700): a fixed path could be a file someone else
+  # already made and can read, and a redirection into it keeps that file's permissions. Global,
+  # not local: the EXIT trap runs after this function has returned. Remove it on every exit: the
+  # encrypted file holds all contact data, and pg_dump's raw messages name the server.
+  workdir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/backup.XXXXXXXX")"
+  trap 'rm -rf -- "$workdir"' EXIT
+  local out="$workdir/$name" pg_err="$workdir/pg_dump.stderr"
 
-  # pipefail: a failing pg_dump fails the whole pipeline, and nothing gets uploaded.
-  pg_dump --format=custom "$DATABASE_URL_SESSION" | age -r "$BACKUP_AGE_RECIPIENT" -o "$out"
+  # pg_dump's stderr goes to a file, never straight to the log (see redact_pg_messages). A
+  # failure of either side fails the job, and nothing gets uploaded.
+  local status
+  set +e
+  pg_dump --format=custom "$DATABASE_URL_SESSION" 2>"$pg_err" |
+    age -r "$BACKUP_AGE_RECIPIENT" -o "$out"
+  status=("${PIPESTATUS[@]}")
+  set -e
+  if [ -s "$pg_err" ]; then
+    echo "backup.sh: pg_dump messages (server, user and addresses removed):" >&2
+    redact_pg_messages "$pg_err" >&2
+  fi
+  # age first: when it fails, pg_dump dies of the closed pipe (141), which is not the cause.
+  [ "${status[1]}" -eq 0 ] || die "age failed (exit ${status[1]})"
+  [ "${status[0]}" -eq 0 ] || die "pg_dump failed (exit ${status[0]})"
 
   [ -s "$out" ] || die "encrypted dump is empty"
   [ "$(head -c 19 "$out")" = "age-encryption.org/" ] || die "output is not an age file"
@@ -135,12 +186,15 @@ cmd_keepalive() {
   # Straight to Supabase, so activity is recorded even if the API path is down. Any HTTP answer
   # counts: a project that refuses the anon key on this root path (401/403) still saw the request,
   # and the call above is the real keepalive. Only a network error or a 5xx fails here.
-  local code
-  code="$(curl -sS --max-time 30 --retry 3 --retry-delay 5 -o /dev/null -w '%{http_code}' \
+  # -s without -S: curl's own message would name <ref>.supabase.co, and only the whole
+  # SUPABASE_URL is masked. Its exit code says enough (6 no DNS, 7 no connection, 28 timeout).
+  local code rc=0
+  code="$(curl -s --max-time 30 --retry 3 --retry-delay 5 -o /dev/null -w '%{http_code}' \
     --config <(printf 'header = "apikey: %s"\n' "$SUPABASE_ANON_KEY") \
-    "${SUPABASE_URL%/}/rest/v1/")"
-  echo "supabase rest answered HTTP $code"
-  [[ "$code" =~ ^[1-4][0-9][0-9]$ ]] || die "supabase rest check failed (HTTP $code)"
+    "${SUPABASE_URL%/}/rest/v1/")" || rc=$?
+  echo "supabase rest answered HTTP $code (curl exit $rc)"
+  [ "$rc" -eq 0 ] && [[ "$code" =~ ^[1-4][0-9][0-9]$ ]] ||
+    die "supabase rest check failed (HTTP $code, curl exit $rc)"
   echo "keepalive ok"
 }
 

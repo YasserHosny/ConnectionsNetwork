@@ -73,20 +73,28 @@ In their **own GitHub Environment named `backup`** (Settings, Environments, New 
 
 Actions, **Backup**, Run workflow, branch `main`. Expect a green run with these log lines:
 `pg_dump (PostgreSQL) 17.x`, `backup uploaded: backups/connections-<date>.dump.age (<n> bytes)`,
-`retention: kept 1, deleted 0 ...`, `{"status":"ok"}`, `supabase rest answered HTTP <code>` and `keepalive ok`. In bunny.net, Storage, the
+`retention: kept 1, deleted 0 ...`, `{"status":"ok"}`, `supabase rest answered HTTP <code> (curl exit 0)` and `keepalive ok`. In bunny.net, Storage, the
 zone, folder `backups/`: the `.dump.age` object is there.
 
 Notes:
 
 - GitHub emails the person who last edited the schedule when a scheduled run fails; keep those
   emails on. A red Backup run means there is no backup for that night.
-- On a public repository GitHub switches scheduled workflows off after 60 days with no repository
-  activity. Then the backups **and the keepalive** stop; re-enable it under Actions.
+- This repository **is public** (since 2026-11-26), and GitHub switches a public repository's
+  scheduled workflows off after 60 days with no repository activity. Then the backups **and the
+  keepalive** stop, and Supabase may pause the project once it has seen little activity for 7
+  days. Push any commit before the 60 days are up, or re-enable the workflow under Actions once it
+  is off.
+- The run logs are public too. Secrets are masked, but only as whole strings, so the script never
+  lets a tool print a host or user taken out of one: `pg_dump`'s messages are shown redacted
+  (`connection to server at "<redacted>" (<address>), port 5432 failed: ... password authentication
+  failed for user "<redacted>"`), and the Supabase check prints curl's exit code (6 no DNS, 7 no
+  connection, 28 timeout) rather than its message. The run still turns red.
 - The keepalive makes two calls. `GET /api/v1/health/db` is the real one: it must answer 200, so a
   database that is down or paused turns the run red. `GET $SUPABASE_URL/rest/v1/` is the direct
   touch of Supabase: **any HTTP answer is accepted**, including 401 or 403 (newer projects may
   refuse the anon key on that root path), and only a network error or a 5xx fails it. The log shows
-  `supabase rest answered HTTP <code>`.
+  `supabase rest answered HTTP <code> (curl exit <n>)`.
 - `/api/v1/health/db` is rate limited to 30 a minute per client address; the nightly run makes
   one call.
 
@@ -242,3 +250,6 @@ docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest .github/workflo
 `scripts/backup.sh` can be pointed at a local Postgres and a fake storage endpoint by setting
 `BUNNY_STORAGE_SCHEME=http` and `BUNNY_STORAGE_HOST=127.0.0.1:<port>` (the scheme override exists
 for that and nothing else). `pg_dump` must be version 17 (the script refuses otherwise).
+Check the redaction there too: a wrong password through a pooler-style host must fail the run,
+and neither the host, the `postgres.<ref>` user nor the address may appear in the output (map the
+host to 127.0.0.1 with `--add-host` when the script runs in a container).

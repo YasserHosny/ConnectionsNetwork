@@ -113,6 +113,15 @@ describe('ResultCardComponent', () => {
     expect(el().querySelector('.steps')?.textContent).toContain('3');
   });
 
+  // A name mixing Arabic and Latin ("اختبار QA TEST ألف") must read in its own direction in either UI.
+  it('lets every name set its own direction', () => {
+    show(FAR);
+
+    const names = [el().querySelector('a.name'), ...Array.from(el().querySelectorAll('.path-line a'))];
+    expect(names.length).toBeGreaterThan(1);
+    for (const name of names) expect(name?.getAttribute('dir')).withContext(name?.textContent ?? '').toBe('auto');
+  });
+
   it('shows "not connected to you" instead of a path for an unreachable person, with no intro', () => {
     show({ ...FAR, path: [], cost: null, steps: 0 });
 

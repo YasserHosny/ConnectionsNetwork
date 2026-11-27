@@ -368,6 +368,51 @@ describe('PersonPage', () => {
     expect(el().querySelector('[role=alert]')?.textContent).toContain('was not found');
   });
 
+  it('treats a malformed person link as not found, with a way back to search', async () => {
+    await harness.navigateByUrl('/people/not-a-uuid', PersonPage);
+    const invalid = { code: 'validation.invalid_request', message: 'x', details: null, trace_id: 't' };
+    http.expectOne('/api/v1/people/not-a-uuid').flush(invalid, { status: 422, statusText: 'x' });
+    http.expectOne('/api/v1/people/not-a-uuid/paths?k=4').flush(invalid, { status: 422, statusText: 'x' });
+    await settle();
+
+    expect(el().querySelector('[role=alert]')?.textContent).toContain('was not found');
+    expect(el().querySelector('button.retry')).toBeNull();
+    expect(el().querySelector('a.back-to-search')?.getAttribute('href')).toBe('/search');
+  });
+
+  describe('your own connection', () => {
+    const MINE = {
+      ...PERSON,
+      connections: [{ id: 'k9', person_id: ADMIN_PERSON_ID, display_name: 'Yasser Hosny', strength: 'normal', note: null }],
+    } as unknown as PersonOut;
+
+    async function openMine(): Promise<void> {
+      await harness.navigateByUrl('/people/p-7', PersonPage);
+      http.expectOne('/api/v1/people/p-7').flush(MINE);
+      http.expectOne('/api/v1/people/p-7/paths?k=4').flush(PATHS);
+      await settle();
+    }
+
+    it('reads "You", as in the path, not your own name', async () => {
+      await openMine();
+
+      const link = el().querySelector('.connections li a') as HTMLAnchorElement;
+      expect(link.textContent?.trim()).toBe('You');
+      expect(el().querySelector('.connections')?.textContent).not.toContain('Yasser Hosny');
+    });
+
+    it('is removed with a question in your words', async () => {
+      await openMine();
+      (el().querySelector('.connections li button.remove-connection') as HTMLButtonElement).click();
+      const container = await until(dialog);
+
+      expect(container.textContent).toContain('Remove your connection with \u2068Sara Mahmoud\u2069?');
+      expect(container.textContent).not.toContain('Yasser Hosny');
+      (document.querySelector('.dialog-cancel') as HTMLButtonElement).click();
+      await until(() => !dialog());
+    });
+  });
+
   it('offers a retry when the person cannot be loaded', async () => {
     await harness.navigateByUrl('/people/p-7', PersonPage);
     http.expectOne('/api/v1/people/p-7').error(new ProgressEvent('error'));

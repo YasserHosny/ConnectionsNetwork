@@ -2,6 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 
 import { AuthService } from './auth.service';
+import { withReturn } from './return-to';
 import { pathOf } from './url-path';
 
 /** Reachable without a session or without MFA: the sign-in screens and the contributor page. */
@@ -23,6 +24,6 @@ export const mfaGuard: CanActivateFn = (_route, state) => {
   const auth = inject(AuthService);
   const router = inject(Router);
 
-  if (!auth.session()) return router.parseUrl('/login');
-  return auth.aal() === 'aal2' ? true : router.parseUrl('/mfa');
+  if (!auth.session()) return router.parseUrl(withReturn('/login', state.url));
+  return auth.aal() === 'aal2' ? true : router.parseUrl(withReturn('/mfa', state.url));
 };

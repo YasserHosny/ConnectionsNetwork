@@ -37,6 +37,13 @@ h1 {
   font: var(--mat-sys-headline-small);
 }
 
+// A confirmation is a sentence or two: with a fallback font its glyphs can poke a few pixels past
+// the content box, which gave two-line dialogs a needless scrollbar. The dialog surface still
+// scrolls if a body is ever too tall for the window.
+.mat-mdc-dialog-content.confirm-body {
+  overflow: visible;
+}
+
 // Actions that delete or end something (delete, merge, revoke, remove a connection) use the
 // error colour, so they never look like Save or Confirm beside them.
 .mat-mdc-button-base.danger {

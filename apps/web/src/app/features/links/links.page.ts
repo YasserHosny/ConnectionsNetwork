@@ -88,7 +88,7 @@ const DATE_KEYS: Record<LinkStatus, string> = {
             <li class="link" [attr.data-link-id]="link.link_id">
               <div class="info">
                 <span class="title">
-                  <a class="name" [routerLink]="['/people', link.person_id]">{{ link.display_name }}</a>
+                  <a class="name" dir="auto" [routerLink]="['/people', link.person_id]">{{ link.display_name }}</a>
                   <span class="status" [class]="'status status-' + statusOf(link)">{{ statusKey(link) | translate }}</span>
                 </span>
                 <span class="detail">{{ dateKey(link) | translate: { date: dateOf(link) } }}</span>

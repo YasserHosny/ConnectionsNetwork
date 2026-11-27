@@ -92,6 +92,74 @@ describe('SearchPage', () => {
     expect(el().querySelector('.idle')?.textContent).toContain('Type a name');
   });
 
+  it('answers an empty Search by moving to the text field and announcing what to type', async () => {
+    await open();
+    submit();
+    await settle();
+
+    expect(document.activeElement).toBe(el().querySelector('input[name=q]'));
+    expect(el().querySelector('.idle')?.getAttribute('role')).toBe('status');
+  });
+
+  it('an emptied search clears the last results and the URL, and asks for something to search', async () => {
+    await open('/search?q=seo');
+    http.expectOne((r) => r.url === '/api/v1/search').flush([result()]);
+    await settle();
+
+    type('input[name=q]', '');
+    submit();
+    await settle();
+
+    expect(router.url).toBe('/search');
+    expect(el().querySelectorAll('app-result-card').length).toBe(0);
+    expect(el().querySelector('.idle')?.getAttribute('role')).toBe('status');
+    expect(document.activeElement).toBe(el().querySelector('input[name=q]'));
+  });
+
+  it('Clear also takes away the warning about a contact value', async () => {
+    await open();
+    type('input[name=q]', 'sara@example.com');
+    submit();
+    await settle();
+    expect(el().querySelector('.contact-hint')).not.toBeNull();
+
+    (el().querySelector('button.clear') as HTMLButtonElement).click();
+    await settle();
+
+    expect(el().querySelector('.contact-hint')).toBeNull();
+  });
+
+  describe('the filters', () => {
+    const panel = () => el().querySelector('details.filters-panel') as HTMLDetailsElement;
+    const narrow = (matches: boolean) =>
+      spyOn(window, 'matchMedia').and.returnValue({ matches } as MediaQueryList);
+
+    it('are folded on a phone, so the results come first', async () => {
+      narrow(false);
+      await open();
+
+      expect(panel().open).toBeFalse();
+      expect(panel().querySelector('summary')?.textContent).toContain('Filters');
+    });
+
+    it('open on a phone when one is set, and say how many', async () => {
+      narrow(false);
+      await open('/search?city=Cairo&seniority=manager');
+      http.expectOne((r) => r.url === '/api/v1/search').flush([]);
+      await settle();
+
+      expect(panel().open).toBeTrue();
+      expect(panel().querySelector('summary')?.textContent).toContain('2');
+    });
+
+    it('stay open on a wider screen', async () => {
+      narrow(true);
+      await open();
+
+      expect(panel().open).toBeTrue();
+    });
+  });
+
   it('searches with the typed text and puts it in the URL for back and forward', async () => {
     await open();
     type('input[name=q]', 'seo');
@@ -301,6 +369,6 @@ describe('SearchPage', () => {
       );
     await settle();
 
-    expect(navigate).toHaveBeenCalledWith('/mfa');
+    expect(navigate).toHaveBeenCalledWith(jasmine.stringMatching(/^\/mfa(\?|$)/));
   });
 });

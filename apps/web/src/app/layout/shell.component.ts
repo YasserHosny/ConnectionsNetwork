@@ -34,15 +34,17 @@ interface NavItem {
   template: `
     <a class="skip-link" href="#main-content">{{ 'shell.skipToContent' | translate }}</a>
 
-    <mat-toolbar class="top-bar">
-      <span class="app-name">{{ 'common.appName' | translate }}</span>
-      <span class="spacer"></span>
-      <app-language-switch />
-      <button mat-button type="button" (click)="signOut()">
-        <mat-icon aria-hidden="true">logout</mat-icon>
-        {{ 'shell.signOut' | translate }}
-      </button>
-    </mat-toolbar>
+    <header class="top-bar-host">
+      <mat-toolbar class="top-bar">
+        <span class="app-name">{{ 'common.appName' | translate }}</span>
+        <span class="spacer"></span>
+        <app-language-switch />
+        <button mat-button type="button" class="sign-out" [attr.aria-label]="'shell.signOut' | translate" (click)="signOut()">
+          <mat-icon aria-hidden="true">logout</mat-icon>
+          <span class="sign-out-label">{{ 'shell.signOut' | translate }}</span>
+        </button>
+      </mat-toolbar>
+    </header>
 
     <nav class="nav" [attr.aria-label]="'shell.navLabel' | translate">
       @for (item of navItems; track item.path) {
@@ -82,12 +84,22 @@ interface NavItem {
       inset-block-start: 8px;
     }
 
-    .top-bar {
+    /* The banner landmark: the grid's top row, sticky while the page scrolls. */
+    .top-bar-host {
       grid-area: top;
       position: sticky;
       inset-block-start: 0;
       z-index: 10;
+    }
+    .top-bar {
       gap: 4px;
+    }
+    /* On a phone the sign-out button is its icon (it keeps its label for screen readers), so the
+       app name is not cut short. */
+    @media (max-width: 719px) {
+      .sign-out-label {
+        display: none;
+      }
     }
     .app-name {
       min-inline-size: 0;

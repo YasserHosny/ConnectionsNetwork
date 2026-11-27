@@ -5,6 +5,7 @@ import type { ErrorEnvelope } from '@connections/domain-types';
 import { Observable, catchError, firstValueFrom, throwError } from 'rxjs';
 
 import { environment } from '../../environments/environment';
+import { returnFrom, withReturn } from './return-to';
 import { AuthService } from './auth.service';
 import { containsContactValue } from './contact-value';
 
@@ -216,10 +217,12 @@ export class ApiClient {
 
   /** Sends the admin where an ended session or a lapsed MFA step must go; returns the error. */
   private handled(error: ApiError): ApiError {
+    // Back to the same page afterwards (`?next=`, in-app paths only).
+    const from = returnFrom(this.router.url);
     if (error.code === 'mfa_required') {
-      void this.router.navigateByUrl('/mfa');
+      void this.router.navigateByUrl(withReturn('/mfa', from));
     } else if (error.status === 401) {
-      void this.auth.signOut({ keepDrafts: true }).then(() => this.router.navigateByUrl('/login'));
+      void this.auth.signOut({ keepDrafts: true }).then(() => this.router.navigateByUrl(withReturn('/login', from)));
     }
     return error;
   }

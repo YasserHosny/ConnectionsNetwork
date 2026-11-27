@@ -23,7 +23,7 @@ export interface ConfirmDialogData {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h2 mat-dialog-title>{{ data.titleKey | translate: data.params }}</h2>
-    <mat-dialog-content>{{ data.bodyKey | translate: data.params }}</mat-dialog-content>
+    <mat-dialog-content class="confirm-body">{{ data.bodyKey | translate: data.params }}</mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button type="button" class="dialog-cancel" [mat-dialog-close]="false" cdkFocusInitial>
         {{ 'common.cancel' | translate }}

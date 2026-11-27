@@ -35,7 +35,7 @@ import { PersonFormComponent } from './person-form.component';
         <ul>
           @for (hint of precheckHints(); track hint.person_id) {
             <li>
-              <a [routerLink]="['/people', hint.person_id]">{{ hint.display_name }}</a>
+              <a dir="auto" [routerLink]="['/people', hint.person_id]">{{ hint.display_name }}</a>
               <span class="matched-on">{{ matchedOnKey(hint.matched_on) | translate }}</span>
             </li>
           }
@@ -53,7 +53,7 @@ import { PersonFormComponent } from './person-form.component';
           <ul>
             @for (hint of result.possible_duplicates; track hint.person_id) {
               <li>
-                <a [routerLink]="['/people', hint.person_id]">{{ hint.display_name }}</a>
+                <a dir="auto" [routerLink]="['/people', hint.person_id]">{{ hint.display_name }}</a>
                 <span class="matched-on">{{ matchedOnKey(hint.matched_on) | translate }}</span>
               </li>
             }

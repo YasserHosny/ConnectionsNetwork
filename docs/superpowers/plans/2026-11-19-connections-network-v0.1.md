@@ -546,7 +546,7 @@ ConnectionsNetwork/
   - `pickContact(): Promise<{name?: string, tel?: string, email?: string} | null>`. It feature-detects `navigator.contacts?.select`; the button is hidden when unsupported.
   - `PersonFormComponent` (shared by add and edit).
     - Required: a name (Arabic or Latin) and a strength.
-    - The strength control shows the connection definition from i18n key `person.strength.help`. Arabic text: "أي حد تقدر تبعتله رسالة وهو يعرف إنت مين. اللي اتقابلتوا مرة: ضعيفة."
+    - The strength control shows the connection definition from i18n key `person.strength.help`. Arabic text: "أي شخص يمكنك مراسلته ويعرف من أنت. من قابلته مرة واحدة فقط: علاقة ضعيفة." (Modern Standard Arabic like the rest of the UI, owner's decision after the 2026-11-26 UX audit; it was Egyptian colloquial)
     - Optional fields are collapsed under "More details".
   - `TagInputComponent`: free text with autocomplete from an injected `suggest(kind, q) => Observable<{label, category}[]>` (admin: `/tags`; contributor: `/contribute/tags`, Task 16); a skill chip has an optional level selector.
   - The add page offers a "Connected to" person picker, defaulting to the admin (spec §8.3).

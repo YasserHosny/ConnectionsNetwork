@@ -57,6 +57,15 @@ interface Tab {
       text-decoration: none;
       white-space: nowrap;
     }
+    /* On a phone the three tabs share the row and their labels wrap, so none is out of sight. */
+    @media (max-width: 719px) {
+      .tab {
+        flex: 1 1 0;
+        padding-inline: 8px;
+        white-space: normal;
+        text-align: center;
+      }
+    }
     .tab.active {
       border-block-end-color: var(--mat-sys-primary);
       color: var(--mat-sys-primary);

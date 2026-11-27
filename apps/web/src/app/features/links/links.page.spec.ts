@@ -288,7 +288,7 @@ describe('LinksPage', () => {
     );
     await settle();
 
-    expect(router.url).toBe('/mfa');
+    expect(router.url.split('?')[0]).toBe('/mfa');
   });
 
   it('offers a retry when the links cannot be loaded', async () => {

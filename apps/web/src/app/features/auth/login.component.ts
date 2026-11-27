@@ -3,10 +3,11 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 
 import { AuthError, AuthService } from '../../core/auth.service';
+import { safeReturn, withReturn } from '../../core/return-to';
 import { LanguageSwitchComponent } from '../../layout/language-switch.component';
 
 /** Email and password. The next screen depends on TOTP: enrol, verify, or straight in. */
@@ -74,6 +75,7 @@ import { LanguageSwitchComponent } from '../../layout/language-switch.component'
 export class LoginComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly form = inject(FormBuilder).nonNullable.group({
     email: ['', [Validators.required]],
@@ -93,7 +95,8 @@ export class LoginComponent {
     this.errorKey.set(null);
     try {
       const next = await this.auth.signIn(email.trim(), password);
-      await this.router.navigateByUrl(next === 'done' ? '/' : '/mfa');
+      const back = this.route.snapshot.queryParamMap.get('next');
+      await this.router.navigateByUrl(next === 'done' ? safeReturn(back) : withReturn('/mfa', back));
     } catch (error) {
       this.errorKey.set(errorKeyFor(error));
     } finally {

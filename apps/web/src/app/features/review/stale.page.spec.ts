@@ -162,7 +162,7 @@ describe('StalePage', () => {
     );
     await settle();
 
-    expect(router.url).toBe('/mfa');
+    expect(router.url.split('?')[0]).toBe('/mfa');
   });
 
   it('offers a retry when the list cannot be loaded', async () => {

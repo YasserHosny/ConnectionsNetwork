@@ -150,6 +150,7 @@ const SUGGEST_DELAY_MS = 300;
       font-size: 0.8rem;
     }
     .level {
+      min-block-size: 32px;
       max-inline-size: 7rem;
       border: 0;
       background: transparent;
@@ -173,7 +174,8 @@ const SUGGEST_DELAY_MS = 300;
       gap: 8px;
     }
     .text {
-      flex: 1 1 14rem;
+      flex: 1 1 12rem;
+      min-inline-size: 0;
     }
     .category-field {
       flex: 1 1 10rem;

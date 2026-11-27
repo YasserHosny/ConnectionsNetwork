@@ -14,7 +14,7 @@ import { fakeAuthService, fakeSession, loadCatalogues } from '../../testing/test
 import { type PersonFormValue } from './person-form.model';
 import { PersonFormComponent } from './person-form.component';
 
-const AR_STRENGTH_HELP = 'أي حد تقدر تبعتله رسالة وهو يعرف إنت مين. اللي اتقابلتوا مرة: ضعيفة.';
+const AR_STRENGTH_HELP = 'أي شخص يمكنك مراسلته ويعرف من أنت. من قابلته مرة واحدة فقط: علاقة ضعيفة.';
 
 describe('PersonFormComponent', () => {
   let fixture: ComponentFixture<PersonFormComponent>;

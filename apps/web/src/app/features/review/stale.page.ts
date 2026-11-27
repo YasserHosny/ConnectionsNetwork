@@ -54,7 +54,7 @@ type Action = 'confirm' | 'link';
           @for (person of people(); track person.person_id) {
             <li class="person">
               <div class="info">
-                <a class="name" [routerLink]="['/people', person.person_id]">{{ person.display_name }}</a>
+                <a class="name" dir="auto" [routerLink]="['/people', person.person_id]">{{ person.display_name }}</a>
                 @if (detail(person); as text) {
                   <span class="detail">{{ text }}</span>
                 }

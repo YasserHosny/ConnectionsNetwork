@@ -4,10 +4,11 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { DomSanitizer, type SafeUrl } from '@angular/platform-browser';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 
 import { AuthError, AuthService } from '../../core/auth.service';
+import { safeReturn, withReturn } from '../../core/return-to';
 import { LanguageSwitchComponent } from '../../layout/language-switch.component';
 
 type Mode = 'loading' | 'enroll' | 'verify' | 'failed';
@@ -122,6 +123,12 @@ type Mode = 'loading' | 'enroll' | 'verify' | 'failed';
 export class MfaComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+
+  /** The page to go back to once verified (`?next=`, in-app paths only), else the start. */
+  private returnTo(): string {
+    return safeReturn(this.route.snapshot.queryParamMap.get('next'));
+  }
   private readonly sanitizer = inject(DomSanitizer);
 
   protected readonly form = inject(FormBuilder).nonNullable.group({
@@ -139,14 +146,14 @@ export class MfaComponent implements OnInit {
 
   protected async load(): Promise<void> {
     if (!this.auth.session()) {
-      await this.router.navigateByUrl('/login');
+      await this.router.navigateByUrl(withReturn('/login', this.route.snapshot.queryParamMap.get('next')));
       return;
     }
     this.mode.set('loading');
     try {
       const next = await this.auth.nextStep();
       if (next === 'done') {
-        await this.router.navigateByUrl('/');
+        await this.router.navigateByUrl(this.returnTo());
       } else if (next === 'enroll') {
         const enrollment = await this.auth.enrollTotp();
         // The QR code is an SVG data URI from our own Supabase project; Angular's URL
@@ -172,7 +179,7 @@ export class MfaComponent implements OnInit {
     this.errorKey.set(null);
     try {
       await this.auth.verifyTotp(this.form.getRawValue().code);
-      await this.router.navigateByUrl('/');
+      await this.router.navigateByUrl(this.returnTo());
     } catch (error) {
       this.errorKey.set(
         error instanceof AuthError && error.kind === 'invalid_code'

@@ -51,7 +51,7 @@ const INTRO_STATUS_KEYS: Record<IntroStatus, string> = {
     <article class="card">
       <div class="info">
         <h2 class="title">
-          <a class="name" [routerLink]="['/people', result().person_id]">{{ result().display_name }}</a>
+          <a class="name" dir="auto" [routerLink]="['/people', result().person_id]">{{ result().display_name }}</a>
           @if (result().is_stale) {
             <span class="stale-badge">{{ 'person.stale' | translate }}</span>
           }

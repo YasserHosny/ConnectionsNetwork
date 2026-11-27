@@ -44,6 +44,9 @@ create schema assistant_gateway authorization assistant_gateway;
 The `grant` is needed on Postgres 16 and later: `create schema ... authorization` fails unless the
 creating role may `set role` to the named one.
 
+The role gets no `create` on the database, and needs none: the migration runner (step 2) only
+creates the schema when it is missing, and here it already exists, owned by the role.
+
 Check the result in the same editor:
 
 ```sql

@@ -71,7 +71,14 @@ def apply(conn: psycopg.Connection[Any], directory: Path | None = None) -> list[
     _require_autocommit(conn)
     with conn.transaction():
         conn.execute(_LOCK)
-        conn.execute("create schema if not exists assistant_gateway")
+        # Not `create schema if not exists`: PostgreSQL checks database-level CREATE before the
+        # IF NOT EXISTS, and the runbook's role only owns the schema (the owner makes it in
+        # step 1). Under the lock, the check and the create cannot race another runner.
+        present = conn.execute(
+            "select 1 from pg_namespace where nspname = 'assistant_gateway'"
+        ).fetchone()
+        if present is None:
+            conn.execute("create schema assistant_gateway")
         conn.execute(
             "create table if not exists assistant_gateway.schema_migrations ("
             "version text primary key, applied_at timestamptz not null default now())"

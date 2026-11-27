@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import threading
+import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import psycopg
 import pytest
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from assistant_gateway import db, migrate
 
@@ -163,3 +167,50 @@ def test_concurrent_runners_apply_a_migration_exactly_once(
     finally:
         conn.execute("drop table if exists assistant_gateway.race_probe")
         conn.execute("delete from assistant_gateway.schema_migrations where version = '9100_race'")
+
+
+@pytest.fixture
+def schema_owner_url(fresh_database_url: str) -> Iterator[str]:
+    """The runbook's setup in a throwaway database: a login role that owns schema
+    assistant_gateway and holds no database-level CREATE. Yields that role's URL."""
+    role = f"ag_owner_{uuid.uuid4().hex[:12]}"
+    password = uuid.uuid4().hex  # a throwaway test value for a role dropped below
+    dbname = conninfo_to_dict(fresh_database_url)["dbname"]
+    with db.connect(fresh_database_url, autocommit=True) as admin:
+        admin.execute(
+            sql.SQL("create role {} login password {}").format(
+                sql.Identifier(role), sql.Literal(password)
+            )
+        )
+    try:
+        with db.connect(fresh_database_url, autocommit=True) as admin:
+            admin.execute(
+                sql.SQL("revoke create on database {} from {}").format(
+                    sql.Identifier(str(dbname)), sql.Identifier(role)
+                )
+            )
+            admin.execute(
+                sql.SQL("create schema assistant_gateway authorization {}").format(
+                    sql.Identifier(role)
+                )
+            )
+            can_create = admin.execute(
+                "select has_database_privilege(%s, current_database(), 'CREATE')", (role,)
+            ).fetchone()
+            assert can_create == (False,)
+        yield make_conninfo(fresh_database_url, user=role, password=password)
+    finally:
+        with db.connect(fresh_database_url, autocommit=True) as admin:
+            admin.execute(sql.SQL("drop owned by {}").format(sql.Identifier(role)))
+            admin.execute(sql.SQL("drop role {}").format(sql.Identifier(role)))
+
+
+def test_apply_needs_no_database_create_when_the_role_owns_the_schema(
+    schema_owner_url: str,
+) -> None:
+    # The runbook's role owns schema assistant_gateway and has no CREATE on the database, which
+    # `create schema if not exists` demands even when the schema is already there.
+    with db.connect(schema_owner_url, autocommit=True) as conn:
+        assert migrate.apply(conn) == ["0001_ledger"]
+        assert migrate.apply(conn) == []
+        assert migrate.pending(conn) == []

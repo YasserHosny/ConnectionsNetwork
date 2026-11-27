@@ -1,7 +1,7 @@
 """Startup checks against a real Postgres, and the migrate CLI as the ops runbook runs it.
 
 The shared test database already has its schema migrated, so the "pending" cases use a throwaway
-database created for the test (same server, different name).
+database created for the test (same server, different name; conftest.fresh_database_url).
 """
 
 from __future__ import annotations
@@ -9,35 +9,14 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import uuid
-from collections.abc import Iterator
 from pathlib import Path
 
-import psycopg
 import pytest
 from fastapi.testclient import TestClient
-from psycopg.conninfo import make_conninfo
 
 from assistant_gateway import db, migrate
 from assistant_gateway.main import create_app
 from assistant_gateway.settings import Settings
-
-
-@pytest.fixture
-def fresh_database_url(database_url: str) -> Iterator[str]:
-    """A new, empty database on the test server; dropped afterwards."""
-    name = f"ag_startup_{uuid.uuid4().hex[:12]}"
-    with db.connect(database_url, autocommit=True) as admin:
-        admin.execute(psycopg.sql.SQL("create database {}").format(psycopg.sql.Identifier(name)))
-    try:
-        yield make_conninfo(database_url, dbname=name)
-    finally:
-        with db.connect(database_url, autocommit=True) as admin:
-            admin.execute(
-                psycopg.sql.SQL("drop database if exists {} with (force)").format(
-                    psycopg.sql.Identifier(name)
-                )
-            )
 
 
 def _settings_for(url: str, monkeypatch: pytest.MonkeyPatch) -> Settings:

@@ -1,23 +1,32 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 
+from assistant_gateway.config import GatewayConfig, load_config
 from assistant_gateway.errors import register_exception_handlers
 from assistant_gateway.logging import TraceIdMiddleware, configure_logging
+from assistant_gateway.rate_limit import configure_rate_limiting
 from assistant_gateway.routes.health import router as health_router
+from assistant_gateway.routes.status import router as status_router
 from assistant_gateway.settings import Settings, get_settings
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
-    # Later tasks read settings (database, config path); resolving it here fails fast when the
-    # environment is incomplete.
-    _ = settings or get_settings()
+def create_app(settings: Settings | None = None, *, config: GatewayConfig | None = None) -> FastAPI:
+    # Resolving settings and the config here fails fast when the environment is incomplete.
+    settings = settings or get_settings()
+    if config is None:
+        config = load_config(settings.ag_config_path, os.environ)
     configure_logging("info")
 
     app = FastAPI(title="Connections Network Assistant Gateway")
     app.add_middleware(TraceIdMiddleware)
+    app.state.config = config
     register_exception_handlers(app)
+    configure_rate_limiting(app)
     app.include_router(health_router)
+    app.include_router(status_router)
     return app
 
 

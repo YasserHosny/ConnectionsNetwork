@@ -70,7 +70,8 @@ def post_transcribe(
     if len(audio) > MAX_UPLOAD_BYTES:
         raise GatewayError(413, "audio_too_large", "The recording is too large.")
     try:
-        seconds = duration_seconds(audio)
+        # The limit stops the measuring early: a crafted file can hold hours of audio in 10 MB.
+        seconds = duration_seconds(audio, limit=Decimal(case.max_audio_seconds))
     except UnsupportedAudio:
         raise GatewayError(415, "unsupported_audio", "The recording is not supported.") from None
     if seconds > case.max_audio_seconds:

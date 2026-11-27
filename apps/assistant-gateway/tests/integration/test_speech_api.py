@@ -74,7 +74,7 @@ def test_cost_is_exactly_the_rate_for_the_duration(
     auth: dict[str, str], conn: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "assistant_gateway.routes.speech.duration_seconds", lambda _data: Decimal("3.00")
+        "assistant_gateway.routes.speech.duration_seconds", lambda _data, **_kw: Decimal("3.00")
     )
     r = post_speech({"openai": FakeSpeech(OK)}, auth)
     assert r.json()["cost_usd"] == 0.0003
@@ -348,3 +348,17 @@ def test_the_registry_key_not_the_adapters_name_labels_the_call(
         "select model from assistant_gateway.ledger_entry order by created_at"
     ).fetchall()
     assert models == [("openai",), ("elevenlabs",)]
+
+
+def test_the_route_measures_with_the_use_cases_limit(
+    auth: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[Decimal | None] = []
+
+    def measure(_data: bytes, *, limit: Decimal | None = None) -> Decimal:
+        seen.append(limit)
+        return Decimal("3.00")
+
+    monkeypatch.setattr("assistant_gateway.routes.speech.duration_seconds", measure)
+    assert post_speech({"openai": FakeSpeech(OK)}, auth).status_code == 200
+    assert seen == [Decimal(60)]  # `dictate` allows 60 s

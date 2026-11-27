@@ -16,6 +16,9 @@ describe('app routes', () => {
   let harness: RouterTestingHarness;
 
   beforeEach(async () => {
+    // The default language (Arabic) is what these pages are checked in: no language saved by an
+    // earlier spec may carry over (specs run in random order).
+    localStorage.clear();
     auth = fakeAuthService();
     TestBed.configureTestingModule({
       providers: [

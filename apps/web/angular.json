@@ -36,6 +36,9 @@
               }
             ],
             "styles": [
+              "@fontsource/readex-pro/400.css",
+              "@fontsource/readex-pro/500.css",
+              "@fontsource/readex-pro/600.css",
               "src/styles.scss"
             ],
             "scripts": []

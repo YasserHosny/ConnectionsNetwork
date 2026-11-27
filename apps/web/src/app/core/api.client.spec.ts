@@ -183,6 +183,27 @@ describe('ApiClient', () => {
       expect(navigate).toHaveBeenCalledWith('/mfa?next=%2Freview%2Fstale');
     });
 
+    // Two requests of one page can both fail: the second must not erase where the first was going.
+    it('keeps the destination when a later failure arrives on the sign-in page itself', async () => {
+      spyOnProperty(TestBed.inject(Router), 'url', 'get').and.returnValue('/login?next=%2Fpeople%2Fp-7');
+      api.get('/people/p-7/paths').subscribe({ error: () => undefined });
+
+      http.expectOne('/api/v1/people/p-7/paths').flush(envelope('auth.unauthenticated'), { status: 401, statusText: 'x' });
+      await Promise.resolve();
+      await auth.signOut.calls.mostRecent().returnValue;
+
+      expect(navigate).toHaveBeenCalledWith('/login?next=%2Fpeople%2Fp-7');
+    });
+
+    it('keeps it on the MFA page too', () => {
+      spyOnProperty(TestBed.inject(Router), 'url', 'get').and.returnValue('/mfa?next=%2Freview%2Fstale');
+      api.get('/review/stale').subscribe({ error: () => undefined });
+
+      http.expectOne('/api/v1/review/stale').flush(envelope('mfa_required'), { status: 403, statusText: 'x' });
+
+      expect(navigate).toHaveBeenCalledWith('/mfa?next=%2Freview%2Fstale');
+    });
+
     it('leaves any other failure to the page', () => {
       api.get('/x').subscribe({ error: () => undefined });
 

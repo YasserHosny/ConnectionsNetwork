@@ -27,6 +27,17 @@ function holdsContactValue(encoded: string): boolean {
   }
 }
 
+/**
+ * Where the admin was, for a redirect to sign in: the current URL, or, when that is already /login
+ * or /mfa (a second request of the same page failing after the first redirect), the `next` it
+ * already carries, so the later failure cannot erase it.
+ */
+export function returnFrom(currentUrl: string): string | null {
+  const [path, query = ''] = currentUrl.split('#')[0].split('?');
+  if (path !== '/login' && path !== '/mfa') return currentUrl;
+  return new URLSearchParams(query).get('next');
+}
+
 /** `/login` or `/mfa`, with `?next=` when there is somewhere other than the start to return to. */
 export function withReturn(target: '/login' | '/mfa', from: string | null | undefined): string {
   const next = safeReturn(from);

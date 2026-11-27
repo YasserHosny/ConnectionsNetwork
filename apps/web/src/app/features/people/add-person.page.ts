@@ -83,10 +83,14 @@ import { PersonFormComponent } from './person-form.component';
     .precheck {
       max-inline-size: 640px;
       margin-block-end: 16px;
-      padding: 12px 16px;
+      padding-block: 12px;
+      padding-inline: 16px;
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-inline-start: 4px solid var(--mat-sys-primary);
       border-radius: 12px;
-      background: var(--mat-sys-tertiary-container);
-      color: var(--mat-sys-on-tertiary-container);
+      /* A neutral surface with an accent edge: the theme's tertiary is cyan, which glared here. */
+      background: var(--mat-sys-surface-container-high);
+      color: var(--mat-sys-on-surface);
     }
     .precheck h2 {
       margin-block: 0 4px;

@@ -206,9 +206,10 @@ const DATE_KEYS: Record<LinkStatus, string> = {
       background: var(--mat-sys-secondary-container);
       color: var(--mat-sys-on-secondary-container);
     }
+    /* Expired is simply inactive: neutral, not the theme's cyan tertiary. */
     .status-expired {
-      background: var(--mat-sys-tertiary-container);
-      color: var(--mat-sys-on-tertiary-container);
+      background: var(--mat-sys-surface-container-highest);
+      color: var(--mat-sys-on-surface-variant);
     }
     .status-revoked {
       background: var(--mat-sys-error-container);

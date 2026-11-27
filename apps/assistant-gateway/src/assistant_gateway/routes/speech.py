@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from assistant_gateway import ledger
 from assistant_gateway.audio import UnsupportedAudio, duration_seconds
 from assistant_gateway.auth import AppContext, current_app, use_case_of
+from assistant_gateway.body_limit import MAX_AUDIO_BYTES
 from assistant_gateway.config import PER_REQUEST, GatewayConfig, UseCaseConfig
 from assistant_gateway.errors import GatewayError
 from assistant_gateway.logging import get_trace_id
@@ -30,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/speech", tags=["speech"])
 
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+# The whole request is capped before it is parsed (body_limit); this is the file's own cap.
+MAX_UPLOAD_BYTES = MAX_AUDIO_BYTES
 
 
 class SpeechResponse(BaseModel):

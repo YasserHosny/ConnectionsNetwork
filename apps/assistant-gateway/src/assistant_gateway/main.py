@@ -8,6 +8,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from assistant_gateway import db, migrate
+from assistant_gateway.body_limit import (
+    DEFAULT_BODY_LIMIT,
+    TRANSCRIBE_BODY_LIMIT,
+    BodySizeLimit,
+    llm_body_limit,
+)
 from assistant_gateway.config import GatewayConfig, load_config
 from assistant_gateway.errors import register_exception_handlers
 from assistant_gateway.logging import TraceIdMiddleware, configure_logging
@@ -63,6 +69,15 @@ def create_app(
         yield
 
     app = FastAPI(title="Connections Network Assistant Gateway", lifespan=lifespan)
+    # The last added runs first: the trace id is set before the body cap can answer 413.
+    app.add_middleware(
+        BodySizeLimit,
+        limits={
+            "/v1/speech/transcribe": TRANSCRIBE_BODY_LIMIT,
+            "/v1/llm/messages": llm_body_limit(config),
+        },
+        default=DEFAULT_BODY_LIMIT,
+    )
     app.add_middleware(TraceIdMiddleware)
     app.state.config = config
     # The real provider reads its key on first use, so the app boots without one (tests, local

@@ -77,7 +77,11 @@
       "addContact": "Add a contact detail",
       "removeRow": "Remove",
       "socialUrl": "Link",
-      "contactValue": "Value",
+      "contactValue": {
+        "whatsapp": "WhatsApp number",
+        "phone": "Phone number",
+        "email": "Email address"
+      },
       "kind": "Type"
     },
     "strength": {

@@ -865,6 +865,24 @@ describe('PersonFormComponent', () => {
       });
     }
 
+    it('is labelled by what it holds, and follows a change of type', () => {
+      TestBed.inject(LocaleService).setLocale('ar');
+      create();
+      const label = () => el().querySelector('fieldset.contacts mat-label:not(:first-child), fieldset.contacts .grow mat-label')?.textContent?.trim();
+
+      expect(label()).toBe('رقم واتساب');
+
+      firstKind().value = 'email';
+      firstKind().dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      expect(label()).toBe('البريد الإلكتروني');
+
+      firstKind().value = 'phone';
+      firstKind().dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      expect(label()).toBe('رقم الهاتف');
+    });
+
     it('sends the number typed into it', async () => {
       create();
       setText('nameLatin', 'Sara Ali');

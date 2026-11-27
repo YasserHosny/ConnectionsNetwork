@@ -2,26 +2,28 @@
 # could not resolve this endpoint's string annotations.
 import json
 import logging
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Mapping
 from decimal import Decimal
 from typing import Annotated, Any, Literal
-from uuid import UUID
 
-import psycopg
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from assistant_gateway import ledger
 from assistant_gateway.auth import AppContext, current_app, use_case_of
-from assistant_gateway.config import PER_REQUEST, GatewayConfig
-from assistant_gateway.db import connect
+from assistant_gateway.config import PER_REQUEST
 from assistant_gateway.errors import GatewayError
 from assistant_gateway.logging import get_trace_id
 from assistant_gateway.pricing import ModelPrice, llm_cost, llm_worst_case
 from assistant_gateway.providers import ProviderRejected, ProviderUncertain
 from assistant_gateway.providers.llm import LlmProvider, LlmResult
 from assistant_gateway.rate_limit import app_rate_limit
+from assistant_gateway.routes.common import (
+    BudgetOut,
+    close_entry,
+    gateway_config,
+    ledger_connection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +56,6 @@ class UsageOut(BaseModel):
     cache_creation_input_tokens: int
 
 
-class BudgetOut(BaseModel):
-    used_usd: float
-    cap_usd: float
-    warning: bool
-
-
 class LlmResponse(BaseModel):
     output: Any
     model: str
@@ -73,17 +69,6 @@ def get_llm(request: Request) -> LlmProvider:
     return llm
 
 
-@contextmanager
-def _ledger_connection() -> Iterator[psycopg.Connection[Any]]:
-    # Opened only once a request has passed validation, and closed again before the provider is
-    # called, so nothing is held (no connection, no transaction) while Claude thinks.
-    conn = connect(autocommit=True)
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-
 @router.post("/messages", response_model=LlmResponse)
 @app_rate_limit
 def post_messages(
@@ -94,7 +79,7 @@ def post_messages(
 ) -> LlmResponse:
     """One metered Claude call: reserve the worst case, call, then settle what it really cost."""
     case = use_case_of(ctx, body.use_case)
-    pricing = _gateway_config(request).pricing
+    pricing = gateway_config(request).pricing
     model = _resolve_model(pricing, case.model, body.model)
     price = pricing[model]
 
@@ -107,7 +92,7 @@ def post_messages(
 
     outcome = _Outcome(app=ctx.name, use_case=body.use_case, model=model)
     try:
-        with _ledger_connection() as conn:
+        with ledger_connection() as conn:
             entry = ledger.reserve(
                 conn,
                 app=ctx.name,
@@ -136,22 +121,22 @@ def post_messages(
             effort=case.effort,
         )
     except ProviderRejected as rejected:
-        _close_entry(entry, "release", rejected.code)
+        close_entry(entry, "release", rejected.code)
         outcome.fail(502, "provider_unavailable")
         raise _unavailable() from None
     except ProviderUncertain as uncertain:
         # It may have been billed: the reservation keeps counting.
-        _close_entry(entry, "mark_unknown", uncertain.code)
+        close_entry(entry, "mark_unknown", uncertain.code)
         outcome.fail(502, "provider_unavailable")
         raise _unavailable() from None
     except Exception:
-        _close_entry(entry, "mark_unknown", "internal_error")
+        close_entry(entry, "mark_unknown", "internal_error")
         outcome.fail(500, "internal_error")
         raise
 
     cost = llm_cost(price, result.usage)
     problem = _output_problem(result, expect_json=body.output_schema is not None)
-    with _ledger_connection() as conn:
+    with ledger_connection() as conn:
         ledger.settle(
             conn,
             entry,
@@ -191,11 +176,6 @@ def map_content(messages: list[LlmMessage]) -> list[str]:
     return [m.content for m in messages]
 
 
-def _gateway_config(request: Request) -> GatewayConfig:
-    config: GatewayConfig = request.app.state.config
-    return config
-
-
 def _resolve_model(
     pricing: Mapping[str, ModelPrice], configured: str, requested: str | None
 ) -> str:
@@ -225,11 +205,6 @@ def _output_problem(result: LlmResult, *, expect_json: bool) -> tuple[str, str] 
 
 def _unavailable() -> GatewayError:
     return GatewayError(502, "provider_unavailable", "The model provider is unavailable.")
-
-
-def _close_entry(entry: UUID, how: Literal["release", "mark_unknown"], code: str) -> None:
-    with _ledger_connection() as conn:
-        getattr(ledger, how)(conn, entry, error_code=code)
 
 
 class _Outcome:

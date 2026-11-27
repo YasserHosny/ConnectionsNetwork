@@ -18,6 +18,7 @@ dependencies = [
     "pyyaml>=6,<7",
     "anthropic>=2.14,<3",
     "av>=19,<20",
+    "python-multipart>=0.0.20,<1",
 ]
 
 [dependency-groups]

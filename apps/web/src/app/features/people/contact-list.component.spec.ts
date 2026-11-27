@@ -7,6 +7,7 @@ import { loadCatalogues } from '../../testing/test-helpers';
 import { ContactListComponent } from './contact-list.component';
 
 describe('ContactListComponent', () => {
+  afterEach(() => localStorage.clear()); // setLocale saves the language
   function render(contacts: Omit<ContactOut, 'id' | 'added_by_person_id'>[]): string[] {
     TestBed.configureTestingModule({ providers: [provideTranslateService()] });
     loadCatalogues();

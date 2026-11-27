@@ -38,7 +38,10 @@ describe('UpdateBannerComponent', () => {
     return { fixture, el: fixture.nativeElement as HTMLElement };
   }
 
-  afterEach(() => document.body.classList.remove('update-banner-open'));
+  afterEach(() => {
+    document.body.classList.remove('update-banner-open');
+    localStorage.clear(); // setLocale saves the language
+  });
 
   it('stays out of the way until a new version has been downloaded', () => {
     configure();

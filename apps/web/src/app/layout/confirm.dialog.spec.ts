@@ -7,6 +7,7 @@ import { loadCatalogues, waitFor } from '../testing/test-helpers';
 import { ConfirmDialog, type ConfirmDialogData } from './confirm.dialog';
 
 describe('ConfirmDialog', () => {
+  afterEach(() => localStorage.clear()); // setLocale saves the language
   const data: ConfirmDialogData = {
     titleKey: 'links.revokeDialog.title',
     bodyKey: 'review.duplicates.mergeDialog.body',

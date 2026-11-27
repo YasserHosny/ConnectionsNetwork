@@ -3,9 +3,24 @@
 The one-time setup for the Assistant Gateway (`apps/assistant-gateway/`), plus the two things you
 do afterwards: change a cap or a model, and read spend. Nothing here is automated. The gateway is
 the third container of the Connections bunny.net app (spec sections 6.3 and 6.6), next to
-`connections-api` and `connections-web`. Do steps 1 to 5 **before the first merge to `main` that
-deploys it**: `deploy.yml` updates a container named `assistant-gateway` last, and fails there if
-the container does not exist yet (the api and web updates before it still go through).
+`connections-api` and `connections-web`.
+
+## Order of work
+
+The container is created from an image that only the deploy workflow pushes, so the merge comes
+first. The workflow's gateway container-update step is guarded by the repository variable
+`ASSISTANT_GATEWAY_ENABLED`, so that merge is green without the container existing yet.
+
+- **Phase A, merge to `main`.** The Deploy workflow builds and pushes `ghcr.io/<owner>/assistant-gateway`
+  (`latest` and the commit SHA) and updates the api and web containers. The gateway container
+  update is skipped, because the variable is not set.
+- **Phase B, the one-time setup:** steps 1 to 5 below, in order: the role and schema, the migrations (run
+  from the pushed image), the app key, the Anthropic Console workspace and limit, then the
+  bunny.net container with its public endpoint deleted.
+- **Phase C, enable the update step.** In GitHub: Settings, Secrets and variables, Actions, **Variables**,
+  add the repository variable `ASSISTANT_GATEWAY_ENABLED` = `true`. Then run **Actions, Deploy,
+  Run workflow** from `main`. From then on every push to `main` also updates the gateway
+  container.
 
 Placeholders: `<ref>` is the Supabase project reference, `<owner>` the GitHub account or
 organisation (lower case), `<pooler host>` the host the dashboard's **Connect** dialog shows for
@@ -39,8 +54,8 @@ postgresql://assistant_gateway.<ref>:<password>@<pooler host>:6543/postgres
 ## 2. Run the migrations
 
 They are run by hand, like the API's migrations, and again after any release that adds a file to
-`apps/assistant-gateway/migrations/`. From any machine with Docker (a published image has to
-exist: run **Actions, Deploy** once from `main` first, or build the image locally):
+`apps/assistant-gateway/migrations/`. From any machine with Docker, using the image the first merge pushed
+(if its GHCR package is private, `docker login ghcr.io` first):
 
 ```bash
 docker run --rm -e AG_DATABASE_URL='postgresql://assistant_gateway.<ref>:<password>@<pooler host>:6543/postgres' \

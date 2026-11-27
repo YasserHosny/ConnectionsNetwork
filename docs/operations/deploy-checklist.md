@@ -6,7 +6,8 @@ agent that wrote this file. After it, every push to `main` redeploys through
 `.github/workflows/deploy.yml`.
 
 The Assistant Gateway, the third container of the bunny.net app, has its own one-time setup:
-`docs/operations/assistant-gateway.md` (do it before the first merge to `main` that deploys it).
+`docs/operations/assistant-gateway.md` (its first section gives the order: merge first, then
+the setup, then enable the gateway update step with a repository variable).
 
 Work top to bottom. Each step ends with how to check it. Steps 2, 4 and 5 end with smoke tests that
 need a running stack; those are run after step 9 (marked below).

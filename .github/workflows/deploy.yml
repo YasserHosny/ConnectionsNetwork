@@ -117,7 +117,11 @@ jobs:
           container: ${{ env.BUNNY_WEB_CONTAINER }}
           image_tag: ${{ github.sha }}
 
+      # Skipped until the owner has created the container and set the repository variable
+      # ASSISTANT_GATEWAY_ENABLED=true (docs/operations/assistant-gateway.md). The image above is
+      # always built and pushed: the container is created from it.
       - name: Update assistant-gateway container on bunny.net Magic Containers
+        if: vars.ASSISTANT_GATEWAY_ENABLED == 'true'
         uses: BunnyWay/actions/container-update-image@671d620bdaac002d2aa7f3dd0dda03dd99c5b749 # container-update-image_0.2.2
         with:
           api_key: ${{ secrets.BUNNY_API_KEY }}

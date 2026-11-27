@@ -9,7 +9,7 @@ html {
         tertiary: mat.$cyan-palette,
         theme-type: light,
       ),
-      // Readex Pro covers Latin and Arabic (loaded in index.html); the rest are system fonts that
+      // Readex Pro covers Latin and Arabic (self-hosted from @fontsource, see angular.json); the rest are system fonts that
       // also cover Arabic, so text stays readable while it loads or if Google Fonts is blocked.
       typography: (
         plain-family: ('Readex Pro', 'Segoe UI', Tahoma, 'Noto Sans Arabic', sans-serif),

@@ -63,6 +63,10 @@ jobs:
         # Runs every package's `lint` task through turbo: for apps/web that is ESLint plus the
         # i18n key, logical-CSS and PWA checks (apps/web/scripts/check-*.mjs).
         run: pnpm lint
+      - name: Test the voice-capture widget
+        # jsdom unit tests for the gateway's <ag-voice-capture> web component; they need no
+        # browser, so they run here with the workspace install.
+        run: pnpm --filter @assistant-gateway/voice-capture test
 
   backend-tests:
     name: Backend tests

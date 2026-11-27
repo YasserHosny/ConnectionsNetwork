@@ -1,0 +1,20 @@
+{
+  "name": "@assistant-gateway/voice-capture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Framework-free <ag-voice-capture> web component for the Assistant Gateway",
+  "type": "module",
+  "main": "dist/voice-capture.js",
+  "types": "dist/voice-capture.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "vitest run",
+    "lint": "tsc -p . --noEmit"
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.1",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.2"
+  }
+}

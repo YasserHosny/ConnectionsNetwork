@@ -30,6 +30,17 @@ class UnsupportedAudio(Exception):
 
 _HUNDREDTH = Decimal("0.01")
 
+# FFmpeg's own options, set on the format context before the header is read.
+# format_whitelist: the demuxers that may open the upload, matched against FFmpeg's demuxer names
+#   ("matroska,webm", "mov,mp4,m4a,3gp,3g2,mj2", ...); any other is refused before read_header.
+#   These are what browsers record (WebM, MP4/M4A, Ogg) and the common audio files.
+# protocol_whitelist: empty, so no protocol at all (file, http, ...) can open a second input. The
+#   upload itself is read through PyAV's in-memory I/O, which is not a protocol.
+_OPEN_OPTIONS = {
+    "format_whitelist": "matroska,webm,mov,mp4,m4a,ogg,wav,mp3,aac,flac",
+    "protocol_whitelist": "",
+}
+
 
 def duration_seconds(data: bytes, *, limit: Decimal | None = None) -> Decimal:
     """Seconds of audio in `data`, rounded up to 0.01. Raises `UnsupportedAudio`.
@@ -39,7 +50,7 @@ def duration_seconds(data: bytes, *, limit: Decimal | None = None) -> Decimal:
     """
     cap = Fraction(limit) if limit is not None else None
     try:
-        with av.open(io.BytesIO(data)) as container:
+        with av.open(io.BytesIO(data), container_options=_OPEN_OPTIONS) as container:
             if len(container.streams) != 1 or len(container.streams.audio) != 1:
                 raise UnsupportedAudio("not exactly one audio stream")
             stream = container.streams.audio[0]

@@ -117,3 +117,46 @@ def webm_opus_all_packets_at_pts_zero(seconds: float) -> bytes:
         container.mux(packet)
     container.close()
     return sink.buffer.getvalue()
+
+
+def ogg_opus(seconds: float) -> bytes:
+    sink = io.BytesIO()
+    _silence("ogg", "libopus", seconds, 48000, 960, sink)
+    return sink.getvalue()
+
+
+def matroska_opus(seconds: float) -> bytes:
+    sink = io.BytesIO()
+    _silence("matroska", "libopus", seconds, 48000, 960, sink)
+    return sink.getvalue()
+
+
+def wav_pcm(seconds: float) -> bytes:
+    sink = io.BytesIO()
+    _silence("wav", "pcm_s16le", seconds, 16000, 1600, sink)
+    return sink.getvalue()
+
+
+def mp3(seconds: float) -> bytes:
+    sink = io.BytesIO()
+    _silence("mp3", "libmp3lame", seconds, 44100, 1152, sink)
+    return sink.getvalue()
+
+
+def adts_aac(seconds: float) -> bytes:
+    sink = io.BytesIO()
+    _silence("adts", "aac", seconds, 44100, 1024, sink)
+    return sink.getvalue()
+
+
+def flac(seconds: float) -> bytes:
+    sink = io.BytesIO()
+    _silence("flac", "flac", seconds, 16000, 1600, sink)
+    return sink.getvalue()
+
+
+def aiff_pcm(seconds: float) -> bytes:
+    """Readable audio in a container the gateway does not accept."""
+    sink = io.BytesIO()
+    _silence("aiff", "pcm_s16be", seconds, 16000, 1600, sink)
+    return sink.getvalue()

@@ -1,14 +1,25 @@
 from __future__ import annotations
 
 import io
+import socket
+import threading
+from collections.abc import Callable, Iterator
 from decimal import Decimal
+from pathlib import Path
 
 import av
 import pytest
 from audio_samples import (
+    adts_aac,
+    aiff_pcm,
+    flac,
+    matroska_opus,
     matroska_two_audio_streams,
+    mp3,
     mp4_aac,
     mp4_audio_and_video,
+    ogg_opus,
+    wav_pcm,
     webm_opus_all_packets_at_pts_zero,
     webm_opus_no_duration,
 )
@@ -97,3 +108,82 @@ def test_a_limit_stops_decoding_when_timestamps_lie() -> None:
 def test_a_limit_above_the_length_changes_nothing() -> None:
     data = webm_opus_no_duration(3.0)
     assert duration_seconds(data, limit=Decimal(60)) == duration_seconds(data)
+
+
+@pytest.mark.parametrize(
+    "make",
+    [webm_opus_no_duration, matroska_opus, mp4_aac, ogg_opus, wav_pcm, mp3, adts_aac, flac],
+)
+def test_every_allowed_container_is_measured(make: Callable[[float], bytes]) -> None:
+    assert Decimal("2.9") <= duration_seconds(make(3.0)) <= Decimal("3.2")
+
+
+def test_a_container_off_the_allow_list_is_refused() -> None:
+    data = aiff_pcm(3.0)
+    with av.open(io.BytesIO(data)) as container:  # FFmpeg itself reads it fine
+        assert container.format.name == "aiff"
+    with pytest.raises(UnsupportedAudio):
+        duration_seconds(data)
+
+
+def test_a_concat_list_cannot_make_ffmpeg_read_a_local_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # ffconcat's default `safe` mode still accepts a relative name, which it opens from the
+    # server's working directory: secondary I/O on a file the caller never uploaded.
+    (tmp_path / "on_the_server.wav").write_bytes(wav_pcm(5.0))
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(UnsupportedAudio):
+        duration_seconds(b"ffconcat version 1.0\nfile 'on_the_server.wav'\n")
+
+
+@pytest.fixture
+def listener() -> Iterator[tuple[int, list[bytes]]]:
+    """A TCP listener on 127.0.0.1: (port, what each accepted connection sent)."""
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(5)
+    server.settimeout(0.2)
+    seen: list[bytes] = []
+    stop = threading.Event()
+
+    def accept() -> None:
+        while not stop.is_set():
+            try:
+                conn, _ = server.accept()
+            except TimeoutError:
+                continue
+            with conn:
+                conn.settimeout(1)
+                try:
+                    seen.append(conn.recv(4096))
+                except OSError:
+                    seen.append(b"")
+
+    thread = threading.Thread(target=accept, daemon=True)
+    thread.start()
+    try:
+        yield server.getsockname()[1], seen
+    finally:
+        stop.set()
+        thread.join(2)
+        server.close()
+
+
+@pytest.mark.parametrize(
+    "playlist",
+    [
+        "#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n"
+        "#EXTINF:10.0,\nhttp://127.0.0.1:{port}/segment.ts\n#EXT-X-ENDLIST\n",
+        "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nhttp://127.0.0.1:{port}/variant.m3u8\n",
+        "ffconcat version 1.0\nfile 'http://127.0.0.1:{port}/a.wav'\n",
+    ],
+    ids=["hls-media", "hls-master", "ffconcat-http"],
+)
+def test_a_playlist_is_refused_without_any_network_request(
+    listener: tuple[int, list[bytes]], playlist: str
+) -> None:
+    port, seen = listener
+    with pytest.raises(UnsupportedAudio):
+        duration_seconds(playlist.format(port=port).encode())
+    assert seen == []

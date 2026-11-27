@@ -29,9 +29,13 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/assistant_gateway"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "assistant_gateway/migrations"
+
 [tool.hatch.build.targets.sdist]
 include = [
     "src/assistant_gateway",
+    "migrations",
     "pyproject.toml",
 ]
 

@@ -16,6 +16,21 @@ whole-branch review fixed seven items, so they are not repeated here:
 - the role SQL grants membership before `create schema`;
 - `end_user_id` rejects control characters.
 
+The two-model pre-PR review then fixed ten more, also not repeated below:
+
+- the migration runner works as a role that owns the schema but has no database-level CREATE;
+- request bodies are capped (413 `request_too_large`) before anything parses them, so a multipart
+  upload is no longer spooled to disk ahead of authentication;
+- `docker-compose.yml` gives each service only its own variables instead of the whole `.env`;
+- the integration fixture refuses to drop a schema `assistant_gateway` it did not create;
+- audio is opened with a demuxer allow-list and no protocols, so a playlist or concat list cannot
+  make FFmpeg read another file or URL;
+- `status` and `usage` open their database connection after the rate-limit check;
+- a blank or over-long `X-Trace-Id` is replaced instead of breaking the error envelope;
+- a 500 carries the request's own trace id in its log line, envelope and header;
+- the periods `9999-12` and `0001-01` answer 422;
+- the web README's Angular upload example subscribes to the request.
+
 Sources:
 
 - Spec: `docs/superpowers/specs/2026-11-27-voice-assistant-design.md` (Part A and section 7)
@@ -64,8 +79,9 @@ Also decided during the build:
 
 - **Lazy providers.** They are built on first use, so the app boots without keys, and a missing
   key answers 502 `provider_unavailable`.
-- **New error codes.** `model_required`, `provider_required` and `invalid_period` are new.
-  `provider_not_allowed` is used for an unconfigured speech provider.
+- **New error codes.** `model_required`, `provider_required`, `invalid_period` and
+  `request_too_large` (413, a body over its route's cap) are new. `provider_not_allowed` is used
+  for an unconfigured speech provider.
 - **Deploy guard.** The gateway's container update in `deploy.yml` is skipped until the repository
   variable `ASSISTANT_GATEWAY_ENABLED` is `true`. See the runbook for the order.
 
@@ -106,13 +122,11 @@ Also decided during the build:
   overcounts, which is safe, but the request returns 500 and the log line is lost.
 
 **Routes**
-- The database connection opens before the rate-limit check on `status` and `usage`.
 - Failed authentication is never throttled.
 - There is no `Retry-After` header.
-- There is no size limit on `output_schema` or the JSON body.
+- `output_schema` has no size limit of its own; only the request body cap (1 MB with the
+  default `max_input_chars`) bounds it.
 - `language` and `provider` have no length limit.
-- Starlette spools a multipart upload to disk before the 10 MB cap applies.
-- The periods `9999-12` and `0001-01` return 500 instead of 422.
 
 **Speech**
 - Per-minute speech prices are placeholders. Some providers bill by token, so set a conservative
@@ -126,15 +140,13 @@ Also decided during the build:
 
 **Tests**
 - The migrations path inside the wheel is not tested.
-- Nothing guards that `TEST_DATABASE_URL` points at a test database, and the conftest drops
-  schema `assistant_gateway` wherever it points.
 - These cases have no tests: one key sent in different header formats, timer edges in the
   widget, and the 60 s boundary.
 - The widget's spec files are not type-checked.
 
 **Logging**
-- `X-Trace-Id`: an empty value breaks the error envelope.
-- Every 500 envelope and access-log line carries the same process-wide trace id.
+- uvicorn's access-log lines are written outside the request, so they carry a process-wide trace
+  id rather than the request's.
 
 **Smoke script**
 - It uses bare indexing on the usage response.

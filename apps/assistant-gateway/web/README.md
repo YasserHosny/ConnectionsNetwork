@@ -134,9 +134,14 @@ Use `[attr.…]` for the label attributes: they are HTML attributes, not element
 ```
 
 ```ts
+import { firstValueFrom } from 'rxjs';
+
 async upload({ blob, mimeType, seconds }: { blob: Blob; mimeType: string; seconds: number }) {
   // Send to YOUR server, which calls the gateway. The widget never does.
-  await this.http.post('/api/voice', blob, { headers: { 'Content-Type': mimeType } });
+  // HttpClient sends nothing until subscribed: firstValueFrom subscribes and awaits the reply.
+  await firstValueFrom(
+    this.http.post('/api/voice', blob, { headers: { 'Content-Type': mimeType } }),
+  );
 }
 ```
 

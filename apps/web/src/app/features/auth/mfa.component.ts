@@ -8,7 +8,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { TranslatePipe } from '@ngx-translate/core';
 
 import { AuthError, AuthService } from '../../core/auth.service';
-import { safeReturn } from '../../core/return-to';
+import { safeReturn, withReturn } from '../../core/return-to';
 import { LanguageSwitchComponent } from '../../layout/language-switch.component';
 
 type Mode = 'loading' | 'enroll' | 'verify' | 'failed';
@@ -146,7 +146,7 @@ export class MfaComponent implements OnInit {
 
   protected async load(): Promise<void> {
     if (!this.auth.session()) {
-      await this.router.navigateByUrl('/login');
+      await this.router.navigateByUrl(withReturn('/login', this.route.snapshot.queryParamMap.get('next')));
       return;
     }
     this.mode.set('loading');

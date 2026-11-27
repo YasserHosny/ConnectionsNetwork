@@ -143,6 +143,25 @@ describe('MfaComponent', () => {
 });
 
 describe('MfaComponent, returning to where the admin was', () => {
+  it('keeps the destination when the session is gone and it sends the admin to sign in', async () => {
+    const auth = fakeAuthService();
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        provideTranslateService(),
+        { provide: AuthService, useValue: auth },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({ next: '/people/p-7' }) } } },
+      ],
+    });
+    loadCatalogues();
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+    const fixture = TestBed.createComponent(MfaComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(navigate).toHaveBeenCalledWith('/login?next=%2Fpeople%2Fp-7');
+  });
+
   it('goes back to the page once the code is verified', async () => {
     const auth = fakeAuthService(fakeSession('aal1'));
     auth.nextStep.and.resolveTo('verify');

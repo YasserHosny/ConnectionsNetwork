@@ -44,6 +44,16 @@ describe('ContactListComponent', () => {
     ).toEqual(['Phone 0101 234 5678', 'WhatsApp 01012345678']);
   });
 
+  // The same identity the server merges on (normalize_phone): 10+ digits without a prefix is +20.
+  it('treats a number the server reads as the same one as the same, keeping the one that opens', () => {
+    expect(
+      render([
+        { kind: 'whatsapp', value: '2123456789' },
+        { kind: 'whatsapp', value: '+202123456789' },
+      ]),
+    ).toEqual(['WhatsApp +202123456789']);
+  });
+
   it('keeps different values apart', () => {
     expect(
       render([

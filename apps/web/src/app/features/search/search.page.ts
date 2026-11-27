@@ -301,8 +301,10 @@ export class SearchPage {
     const filters = this.form.getRawValue() as SearchFilters;
     this.contactHint.set(false);
     if (!hasCriteria(filters)) {
+      // Nothing to search: say what to type, and drop the last search from the URL and the page.
       this.nudged.set(true);
       this.queryInput()?.nativeElement.focus();
+      this.go(filters);
       return;
     }
     this.nudged.set(false);
@@ -315,6 +317,7 @@ export class SearchPage {
 
   protected clear(): void {
     this.nudged.set(false);
+    this.contactHint.set(false);
     this.form.setValue(EMPTY_FILTERS);
     this.go(EMPTY_FILTERS);
   }

@@ -101,6 +101,34 @@ describe('SearchPage', () => {
     expect(el().querySelector('.idle')?.getAttribute('role')).toBe('status');
   });
 
+  it('an emptied search clears the last results and the URL, and asks for something to search', async () => {
+    await open('/search?q=seo');
+    http.expectOne((r) => r.url === '/api/v1/search').flush([result()]);
+    await settle();
+
+    type('input[name=q]', '');
+    submit();
+    await settle();
+
+    expect(router.url).toBe('/search');
+    expect(el().querySelectorAll('app-result-card').length).toBe(0);
+    expect(el().querySelector('.idle')?.getAttribute('role')).toBe('status');
+    expect(document.activeElement).toBe(el().querySelector('input[name=q]'));
+  });
+
+  it('Clear also takes away the warning about a contact value', async () => {
+    await open();
+    type('input[name=q]', 'sara@example.com');
+    submit();
+    await settle();
+    expect(el().querySelector('.contact-hint')).not.toBeNull();
+
+    (el().querySelector('button.clear') as HTMLButtonElement).click();
+    await settle();
+
+    expect(el().querySelector('.contact-hint')).toBeNull();
+  });
+
   describe('the filters', () => {
     const panel = () => el().querySelector('details.filters-panel') as HTMLDetailsElement;
     const narrow = (matches: boolean) =>

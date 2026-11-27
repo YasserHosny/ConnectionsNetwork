@@ -68,6 +68,12 @@ import { TagInputComponent } from './tag-input.component';
 
 const ARABIC_SCRIPT = /[؀-ۿ]/;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** The value field says what goes in it ("WhatsApp number"), following the row's type. */
+const CONTACT_VALUE_LABEL: Readonly<Record<ContactKind, string>> = {
+  whatsapp: 'person.form.contactValue.whatsapp',
+  phone: 'person.form.contactValue.phone',
+  email: 'person.form.contactValue.email',
+};
 /** How long typing pauses before the entry is kept as a draft (not on every keystroke). */
 const TYPING_DRAFT_DELAY_MS = 800;
 
@@ -187,7 +193,7 @@ const nameRequired = (group: AbstractControl): ValidationErrors | null =>
               </select>
             </mat-form-field>
             <mat-form-field appearance="outline" subscriptSizing="dynamic" class="grow">
-              <mat-label>{{ 'person.form.contactValue' | translate }}</mat-label>
+              <mat-label>{{ contactValueLabel[row.controls.kind.value] | translate }}</mat-label>
               <input matInput dir="ltr" formControlName="value" autocomplete="off" class="contact-value" />
             </mat-form-field>
             <button
@@ -555,6 +561,7 @@ export class PersonFormComponent implements OnInit {
   protected readonly availableFor = AVAILABLE_FOR_OPTIONS;
   protected readonly socialKinds = SOCIAL_KIND_OPTIONS;
   protected readonly contactKinds = CONTACT_KIND_OPTIONS;
+  protected readonly contactValueLabel = CONTACT_VALUE_LABEL;
   protected readonly pickerSupported = isContactPickerSupported();
 
   protected readonly form = this.fb.group(

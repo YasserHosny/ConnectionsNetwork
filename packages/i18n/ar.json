@@ -77,7 +77,11 @@
       "addContact": "إضافة بيان اتصال",
       "removeRow": "حذف",
       "socialUrl": "الرابط",
-      "contactValue": "القيمة",
+      "contactValue": {
+        "whatsapp": "رقم واتساب",
+        "phone": "رقم الهاتف",
+        "email": "البريد الإلكتروني"
+      },
       "kind": "النوع"
     },
     "strength": {

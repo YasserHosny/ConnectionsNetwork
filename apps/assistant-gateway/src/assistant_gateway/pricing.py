@@ -45,10 +45,11 @@ def llm_cost(price: ModelPrice, usage: Usage) -> Decimal:
 def llm_worst_case(price: ModelPrice, input_bytes: int, max_output_tokens: int) -> Decimal:
     """Upper bound on a call's cost, reserved before the call is made.
 
-    Every input token (one per UTF-8 byte, plus a fixed overhead) is priced at the dearer of
-    uncached input and cache write, so no cache outcome can exceed it.
+    Every input token (one per UTF-8 byte, plus a fixed overhead) is priced at the dearest of
+    uncached input, cache write and cache read, so no cache outcome can exceed it, whatever the
+    operator's price table says.
     """
-    input_rate = max(price.input, price.cache_write)
+    input_rate = max(price.input, price.cache_write, price.cache_read)
     total = (input_bytes + INPUT_OVERHEAD_TOKENS) * input_rate + max_output_tokens * price.output
     return _round_up(total / _PER_MILLION)
 

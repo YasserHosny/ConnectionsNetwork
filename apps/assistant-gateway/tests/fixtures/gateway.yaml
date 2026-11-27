@@ -1,6 +1,7 @@
 # Test configuration. Obviously fake: the key hashes come from the environment (tests/conftest.py).
 pricing:
   claude-haiku-4-5: {input: 1.00, output: 5.00, cache_write: 1.25, cache_read: 0.10}
+  claude-sonnet-5-5: {input: 3.00, output: 15.00, cache_write: 3.75, cache_read: 0.30}
 
 providers:
   anthropic: {api_key_env: ANTHROPIC_API_KEY}
@@ -15,6 +16,18 @@ apps:
         model: claude-haiku-4-5
         max_output_tokens: 2000
         speech: {mode: browser, language: ar-EG}
+      trial:
+        model: per-request
+        effort: low
+        max_output_tokens: 1000
+      capped:
+        model: claude-haiku-4-5
+        max_output_tokens: 2000
+        cap_usd: 0.01
+      short:
+        model: claude-haiku-4-5
+        max_output_tokens: 100
+        max_input_chars: 50
   other-app:
     key_hash_env: AG_TEST_OTHER_KEY_HASH
     timezone: Africa/Cairo

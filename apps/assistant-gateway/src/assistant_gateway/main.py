@@ -7,13 +7,21 @@ from fastapi import FastAPI
 from assistant_gateway.config import GatewayConfig, load_config
 from assistant_gateway.errors import register_exception_handlers
 from assistant_gateway.logging import TraceIdMiddleware, configure_logging
+from assistant_gateway.providers.anthropic_llm import LazyAnthropicProvider
+from assistant_gateway.providers.llm import LlmProvider
 from assistant_gateway.rate_limit import configure_rate_limiting
 from assistant_gateway.routes.health import router as health_router
+from assistant_gateway.routes.llm import router as llm_router
 from assistant_gateway.routes.status import router as status_router
 from assistant_gateway.settings import Settings, get_settings
 
 
-def create_app(settings: Settings | None = None, *, config: GatewayConfig | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    config: GatewayConfig | None = None,
+    llm: LlmProvider | None = None,
+) -> FastAPI:
     # Resolving settings and the config here fails fast when the environment is incomplete.
     settings = settings or get_settings()
     if config is None:
@@ -23,10 +31,14 @@ def create_app(settings: Settings | None = None, *, config: GatewayConfig | None
     app = FastAPI(title="Connections Network Assistant Gateway")
     app.add_middleware(TraceIdMiddleware)
     app.state.config = config
+    # The real provider reads its key on first use, so the app boots without one (tests, local
+    # dev); a call then fails as provider_unavailable.
+    app.state.llm = llm or LazyAnthropicProvider(config.providers.anthropic.api_key_env)
     register_exception_handlers(app)
     configure_rate_limiting(app)
     app.include_router(health_router)
     app.include_router(status_router)
+    app.include_router(llm_router)
     return app
 
 

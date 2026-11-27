@@ -62,8 +62,8 @@ def post_transcribe(
     if case.speech.mode != "server":
         raise GatewayError(409, "speech_mode_browser", "This use case uses browser speech.")
     config = gateway_config(request)
-    speaker = _resolve_provider(config, registry, case, provider)
-    price = config.speech_pricing[speaker.name]
+    key, speaker = _resolve_provider(config, registry, case, provider)
+    price = config.speech_pricing[key]
 
     # Read one byte past the cap, so an oversized upload is noticed without holding all of it.
     audio = file.file.read(MAX_UPLOAD_BYTES + 1)
@@ -77,7 +77,7 @@ def post_transcribe(
         raise GatewayError(413, "audio_too_long", "The recording is too long.")
 
     amount = speech_cost(price, seconds)
-    outcome = _Outcome(app=ctx.name, use_case=use_case, provider=speaker.name)
+    outcome = _Outcome(app=ctx.name, use_case=use_case, provider=key)
     try:
         with ledger_connection() as conn:
             entry = ledger.reserve(
@@ -86,7 +86,7 @@ def post_transcribe(
                 use_case=use_case,
                 end_user_id=end_user_id,
                 kind="speech",
-                model=speaker.name,
+                model=key,
                 amount=amount,
                 caps=ledger.Caps.for_use_case(ctx.config, case),
                 tz=ctx.config.timezone,
@@ -129,7 +129,7 @@ def post_transcribe(
     return SpeechResponse(
         text=result.text,
         duration_seconds=float(seconds),
-        provider=speaker.name,
+        provider=key,
         cost_usd=float(amount),
         budget=BudgetOut(
             used_usd=float(snap.used_usd), cap_usd=float(snap.cap_usd), warning=snap.warning
@@ -142,15 +142,18 @@ def _resolve_provider(
     registry: Mapping[str, SpeechProvider],
     case: UseCaseConfig,
     requested: str | None,
-) -> SpeechProvider:
-    """The use case's provider; on a per-request one, the requested one (priced, configured)."""
+) -> tuple[str, SpeechProvider]:
+    """(registry key, adapter) for the use case's provider; on a per-request one, the requested.
+
+    The key, not the adapter's own `name`, prices the call and labels the ledger and response.
+    """
     configured = case.speech.provider
     if configured != PER_REQUEST:
         found = registry.get(configured or "")
         if found is None:
             # Priced and configured (the config says so), but no adapter exists for it.
             raise _unavailable()
-        return found
+        return configured or "", found
     if not requested:
         raise GatewayError(422, "provider_required", "This use case needs a provider.")
     found = registry.get(requested)
@@ -160,7 +163,7 @@ def _resolve_provider(
         or config.providers.get(requested) is None
     ):
         raise GatewayError(422, "provider_not_allowed", "That provider is not available.")
-    return found
+    return requested, found
 
 
 def _unavailable() -> GatewayError:

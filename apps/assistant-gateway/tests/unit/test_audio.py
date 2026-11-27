@@ -5,7 +5,13 @@ from decimal import Decimal
 
 import av
 import pytest
-from audio_samples import mp4_aac, webm_opus_no_duration
+from audio_samples import (
+    matroska_two_audio_streams,
+    mp4_aac,
+    mp4_audio_and_video,
+    webm_opus_all_packets_at_pts_zero,
+    webm_opus_no_duration,
+)
 
 from assistant_gateway.audio import UnsupportedAudio, duration_seconds
 
@@ -56,3 +62,20 @@ def test_a_file_with_no_audio_stream_is_unsupported() -> None:
     container.close()
     with pytest.raises(UnsupportedAudio):
         duration_seconds(sink.getvalue())
+
+
+def test_two_audio_streams_are_unsupported() -> None:
+    # A naive reader would measure only the short first stream (0.5 s) of this 30 s file.
+    with pytest.raises(UnsupportedAudio):
+        duration_seconds(matroska_two_audio_streams(0.5, 30.0))
+
+
+def test_audio_plus_video_is_unsupported() -> None:
+    with pytest.raises(UnsupportedAudio):
+        duration_seconds(mp4_audio_and_video())
+
+
+def test_timestamps_that_lie_cannot_shorten_the_measure() -> None:
+    # 30 s of real Opus whose packets all claim pts 0: the packet span says 0.02 s, the decoded
+    # samples say 30 s, and the longer wins.
+    assert duration_seconds(webm_opus_all_packets_at_pts_zero(30.0)) >= Decimal("29.9")

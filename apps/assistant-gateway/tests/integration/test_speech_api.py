@@ -328,3 +328,23 @@ def test_without_an_api_key_the_app_boots_and_the_call_is_released(
     assert r.status_code == 502
     assert r.json()["code"] == "provider_unavailable"
     assert [s for s, *_ in rows(conn)] == ["released"]
+
+
+def test_the_registry_key_not_the_adapters_name_labels_the_call(
+    auth: dict[str, str], conn: psycopg.Connection[Any]
+) -> None:
+    # Fixed provider: key "openai", adapter that calls itself something else.
+    r = post_speech({"openai": FakeSpeech(OK, name="impostor")}, auth)
+    assert (r.status_code, r.json()["provider"]) == (200, "openai")
+    # Per-request: requested key "elevenlabs", adapter named "openai".
+    r = post_speech(
+        {"elevenlabs": FakeSpeech(OK, name="openai")},
+        auth,
+        use_case="dictate_trial",
+        provider="elevenlabs",
+    )
+    assert (r.status_code, r.json()["provider"]) == (200, "elevenlabs")
+    models = conn.execute(
+        "select model from assistant_gateway.ledger_entry order by created_at"
+    ).fetchall()
+    assert models == [("openai",), ("elevenlabs",)]

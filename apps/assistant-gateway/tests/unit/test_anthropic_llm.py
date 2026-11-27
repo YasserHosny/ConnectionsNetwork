@@ -204,10 +204,11 @@ def test_other_5xx_maps_to_uncertain(cls: type[anthropic.APIStatusError], status
         _complete(provider)
 
 
-def test_the_real_client_is_built_with_the_fixed_timeout_and_one_retry() -> None:
+def test_the_real_client_is_built_with_the_fixed_timeout_and_no_retries() -> None:
     client = AnthropicProvider("k")._client
     assert client.timeout == 30.0
-    assert client.max_retries == 1
+    # A retry would hide whether the first attempt was billed, so the SDK must not retry.
+    assert client.max_retries == 0
 
 
 def test_lazy_provider_boots_without_a_key_and_rejects_the_call() -> None:

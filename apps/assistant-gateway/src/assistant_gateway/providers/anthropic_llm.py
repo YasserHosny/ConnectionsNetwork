@@ -4,6 +4,9 @@ Each model takes only the knobs it supports: `effort` is sent to the models in E
 to no other (Haiku 4.5 rejects it). No `thinking` parameter is sent, so each model keeps its own
 default, and there are no server-side `fallbacks`: every model a request can run on is priced.
 
+The client is built with `max_retries=0`: a retry would hide whether the first attempt was billed
+(see MAX_RETRIES).
+
 SDK failures become the two errors the route understands (see `providers/__init__`).
 """
 
@@ -22,7 +25,11 @@ from assistant_gateway.providers.llm import LlmResult
 
 EFFORT_MODELS = frozenset({"claude-sonnet-5-5", "claude-opus-5-5"})
 TIMEOUT_SECONDS = 30.0
-MAX_RETRIES = 1
+# The SDK would retry timeouts, dropped connections, 408/409/429 and 5xx, and only the last
+# attempt's error reaches us. A first attempt that timed out (and may have been billed), followed
+# by a retry answered 429 or 529, would read as "rejected", and the route would release the
+# reservation. So the SDK never retries; the calling app decides whether to try again.
+MAX_RETRIES = 0
 
 
 class _MessagesClient(Protocol):

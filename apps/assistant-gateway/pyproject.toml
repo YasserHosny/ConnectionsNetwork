@@ -19,6 +19,8 @@ dependencies = [
     "anthropic>=2.14,<3",
     "av>=19,<20",
     "python-multipart>=0.0.20,<1",
+    # python:3.12-slim may lack /usr/share/zoneinfo; ZoneInfo("Africa/Cairo") must work anyway.
+    "tzdata",
 ]
 
 [dependency-groups]

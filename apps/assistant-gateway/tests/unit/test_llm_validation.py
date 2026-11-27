@@ -37,7 +37,7 @@ def no_db_client(fake: FakeLlm, monkeypatch: pytest.MonkeyPatch) -> Iterator[Tes
         raise AssertionError("a refused request must not open a database connection")
 
     monkeypatch.setattr("assistant_gateway.routes.common.connect", _no_connection)
-    with TestClient(create_app(llm=fake)) as c:
+    with TestClient(create_app(llm=fake, check_migrations=False)) as c:
         yield c
 
 

@@ -31,7 +31,7 @@ def no_db_client(fake: FakeSpeech, monkeypatch: pytest.MonkeyPatch) -> Iterator[
         raise AssertionError("a refused request must not open a database connection")
 
     monkeypatch.setattr("assistant_gateway.routes.common.connect", _no_connection)
-    with TestClient(create_app(speech={"openai": fake})) as c:
+    with TestClient(create_app(speech={"openai": fake}, check_migrations=False)) as c:
         yield c
 
 

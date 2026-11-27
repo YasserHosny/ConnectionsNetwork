@@ -2,11 +2,13 @@
 
 A migration's version is its filename stem (``0001_ledger``). Files apply in name order, each in
 its own transaction, and are recorded in ``assistant_gateway.schema_migrations``. Run with
-``python -m assistant_gateway.migrate`` (uses AG_DATABASE_URL).
+``python -m assistant_gateway.migrate``, which needs only AG_DATABASE_URL.
 """
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -43,8 +45,19 @@ def _applied(conn: psycopg.Connection[Any]) -> set[str]:
     return {row[0] for row in rows}
 
 
+def _require_autocommit(conn: psycopg.Connection[Any]) -> None:
+    # Inside a transaction the per-file ``conn.transaction()`` blocks would become savepoints:
+    # nothing would commit until the caller does, and one failure would undo earlier files.
+    if not conn.autocommit:
+        raise RuntimeError("migrations need an autocommit connection (db.connect(autocommit=True))")
+
+
 def pending(conn: psycopg.Connection[Any], directory: Path | None = None) -> list[str]:
-    """Versions on disk that are not yet recorded as applied, in order."""
+    """Versions on disk that are not yet recorded as applied, in order.
+
+    Needs an autocommit connection, like ``apply``.
+    """
+    _require_autocommit(conn)
     applied = _applied(conn)
     return [p.stem for p in _files(directory or migrations_dir()) if p.stem not in applied]
 
@@ -53,8 +66,9 @@ def apply(conn: psycopg.Connection[Any], directory: Path | None = None) -> list[
     """Apply every pending migration; return the versions applied by this call.
 
     The connection must not be inside a transaction already (use ``autocommit=True``), so each
-    migration commits on its own.
+    migration commits on its own; anything else raises RuntimeError.
     """
+    _require_autocommit(conn)
     with conn.transaction():
         conn.execute(_LOCK)
         conn.execute("create schema if not exists assistant_gateway")
@@ -79,7 +93,12 @@ def apply(conn: psycopg.Connection[Any], directory: Path | None = None) -> list[
 
 
 def main() -> None:
-    with db.connect(autocommit=True) as conn:
+    # Read straight from the environment, not through Settings: the runbook runs this with
+    # AG_DATABASE_URL alone, without AG_ENV or AG_CONFIG_PATH.
+    dsn = os.environ.get("AG_DATABASE_URL")
+    if not dsn:
+        sys.exit("AG_DATABASE_URL is not set: it must hold the database URL of the gateway role.")
+    with db.connect(dsn, autocommit=True) as conn:
         versions = apply(conn)
     if versions:
         print("applied: " + ", ".join(versions))

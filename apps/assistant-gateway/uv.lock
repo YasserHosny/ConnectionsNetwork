@@ -58,6 +58,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "pyyaml" },
     { name = "slowapi" },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -79,6 +80,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20,<1" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "slowapi", specifier = "==0.1.9" },
+    { name = "tzdata" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.34.0" },
 ]
 

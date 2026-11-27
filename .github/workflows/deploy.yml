@@ -1,8 +1,9 @@
 name: Deploy
 
-# One bunny.net Magic Containers app holds both containers (api and web), so one workflow builds
-# both images and then updates both containers. Database migrations are NOT run from here: the
-# owner applies them by hand (docs/operations/deploy-checklist.md).
+# One bunny.net Magic Containers app holds all three containers (api, web and assistant-gateway),
+# so one workflow builds the three images and then updates the three containers. Database
+# migrations are NOT run from here: the owner applies them by hand
+# (docs/operations/deploy-checklist.md, docs/operations/assistant-gateway.md).
 
 on:
   push:
@@ -22,6 +23,7 @@ env:
   # The container names inside the bunny.net app; they must match what the owner created.
   BUNNY_API_CONTAINER: connections-api
   BUNNY_WEB_CONTAINER: connections-web
+  BUNNY_GATEWAY_CONTAINER: assistant-gateway
 
 # Third-party actions in this job see the registry login or the bunny.net key, so each is pinned
 # to a full commit SHA (a tag can be moved to other code); the trailing comment names the release.
@@ -29,7 +31,7 @@ env:
 
 jobs:
   deploy:
-    name: Build, push and deploy api and web
+    name: Build, push and deploy api, web and assistant-gateway
     # workflow_dispatch can be started from any branch by anyone with write access. This job
     # builds the `latest` images and holds the bunny.net key, so it runs from main only, and in
     # the `production` environment, whose deployment-branch rule (main only) and secrets belong to
@@ -57,6 +59,7 @@ jobs:
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "api_image=ghcr.io/${OWNER}/connections-api" >> "$GITHUB_OUTPUT"
           echo "web_image=ghcr.io/${OWNER}/connections-web" >> "$GITHUB_OUTPUT"
+          echo "gateway_image=ghcr.io/${OWNER}/assistant-gateway" >> "$GITHUB_OUTPUT"
 
       - name: Build and push api image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
@@ -85,6 +88,19 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 
+      - name: Build and push assistant-gateway image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: infra/docker/assistant-gateway.Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.meta.outputs.gateway_image }}:latest
+            ${{ steps.meta.outputs.gateway_image }}:${{ github.sha }}
+          cache-from: type=gha,scope=assistant-gateway
+          cache-to: type=gha,scope=assistant-gateway,mode=min
+
       - name: Update api container on bunny.net Magic Containers
         uses: BunnyWay/actions/container-update-image@671d620bdaac002d2aa7f3dd0dda03dd99c5b749 # container-update-image_0.2.2
         with:
@@ -99,4 +115,12 @@ jobs:
           api_key: ${{ secrets.BUNNY_API_KEY }}
           app_id: ${{ secrets.BUNNY_APP_ID }}
           container: ${{ env.BUNNY_WEB_CONTAINER }}
+          image_tag: ${{ github.sha }}
+
+      - name: Update assistant-gateway container on bunny.net Magic Containers
+        uses: BunnyWay/actions/container-update-image@671d620bdaac002d2aa7f3dd0dda03dd99c5b749 # container-update-image_0.2.2
+        with:
+          api_key: ${{ secrets.BUNNY_API_KEY }}
+          app_id: ${{ secrets.BUNNY_APP_ID }}
+          container: ${{ env.BUNNY_GATEWAY_CONTAINER }}
           image_tag: ${{ github.sha }}

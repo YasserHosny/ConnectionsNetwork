@@ -14,7 +14,7 @@ Q = {"use_case": "person_add", "end_user_id": "user-1"}
 @pytest.fixture
 def no_db_client() -> Iterator[TestClient]:
     """Requests that fail before the database must not need one."""
-    app = create_app()
+    app = create_app(check_migrations=False)
 
     def _no_connection() -> Iterator[None]:
         yield None

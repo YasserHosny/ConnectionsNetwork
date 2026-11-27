@@ -10,6 +10,7 @@ from assistant_gateway import ledger
 from assistant_gateway.auth import AppContext, current_app, use_case_of
 from assistant_gateway.db import request_connection
 from assistant_gateway.rate_limit import app_rate_limit
+from assistant_gateway.routes.common import EndUserId
 
 router = APIRouter(prefix="/v1", tags=["status"])
 
@@ -39,7 +40,7 @@ def get_status(
     ctx: Annotated[AppContext, Depends(current_app)],
     conn: Annotated[psycopg.Connection[Any], Depends(request_connection)],
     use_case: Annotated[str, Query(min_length=1)],
-    end_user_id: Annotated[str, Query(min_length=1, max_length=128)],  # noqa: ARG001
+    end_user_id: Annotated[EndUserId, Query()],  # noqa: ARG001
 ) -> StatusResponse:
     """What an app may expect now: the use case's speech mode and the app's monthly budget."""
     case = use_case_of(ctx, use_case)

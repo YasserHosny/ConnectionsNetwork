@@ -60,6 +60,7 @@ def post(
         ({}, webm_opus_no_duration(61.0), 413, "audio_too_long"),
         ({"end_user_id": ""}, AUDIO, 422, "validation.invalid_request"),
         ({"end_user_id": "u" * 129}, AUDIO, 422, "validation.invalid_request"),
+        ({"end_user_id": "u\x00x"}, AUDIO, 422, "validation.invalid_request"),
     ],
     ids=[
         "browser_mode",
@@ -72,6 +73,7 @@ def post(
         "too_long",
         "empty_user",
         "long_user",
+        "nul_user",
     ],
 )
 def test_refused_without_touching_the_database_or_provider(

@@ -261,6 +261,23 @@ def test_negative_price_is_an_error(tmp_path: Path) -> None:
         load_config(write(tmp_path, set_price), ENV)
 
 
+@pytest.mark.parametrize("field", ["input", "output", "cache_write", "cache_read"])
+def test_zero_token_price_is_an_error(tmp_path: Path, field: str) -> None:
+    def set_price(d: dict[str, Any]) -> None:
+        d["pricing"]["claude-haiku-4-5"][field] = 0
+
+    with pytest.raises(ConfigError, match=rf"pricing\.claude-haiku-4-5\.{field}"):
+        load_config(write(tmp_path, set_price), ENV)
+
+
+def test_zero_speech_price_is_an_error(tmp_path: Path) -> None:
+    def set_price(d: dict[str, Any]) -> None:
+        d["pricing"]["speech"]["openai"]["per_minute"] = 0
+
+    with pytest.raises(ConfigError, match=r"pricing\.speech\.openai\.per_minute"):
+        load_config(write(tmp_path, set_price), ENV)
+
+
 def test_bad_speech_price_names_its_path(tmp_path: Path) -> None:
     def set_price(d: dict[str, Any]) -> None:
         d["pricing"]["speech"]["openai"]["per_minute"] = "free"

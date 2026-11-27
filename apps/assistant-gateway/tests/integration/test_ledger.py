@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -113,6 +114,28 @@ def test_reserve_within_cap_then_settle_counts_actual(conn: Conn) -> None:
     ) == (100, 20, 3, 4)
     assert row["audio_seconds"] is None
     assert row["settled_at"] is not None
+
+
+def test_settle_above_the_reservation_logs_a_warning(
+    conn: Conn, caplog: pytest.LogCaptureFixture
+) -> None:
+    entry = _reserve(conn, "0.01")
+    with caplog.at_level(logging.WARNING, logger="assistant_gateway.ledger"):
+        settle(conn, entry, actual_usd=Decimal("0.02"))
+    [record] = [r for r in caplog.records if r.name == "assistant_gateway.ledger"]
+    assert record.levelno == logging.WARNING
+    assert (record.entry_id, record.app) == (str(entry), "a")
+    assert (record.reserved_usd, record.actual_usd) == ("0.010000", "0.020000")
+    assert _status(conn, entry) == "settled"
+
+
+def test_settle_within_the_reservation_does_not_warn(
+    conn: Conn, caplog: pytest.LogCaptureFixture
+) -> None:
+    entry = _reserve(conn, "0.02")
+    with caplog.at_level(logging.WARNING, logger="assistant_gateway.ledger"):
+        settle(conn, entry, actual_usd=Decimal("0.02"))
+    assert [r for r in caplog.records if r.name == "assistant_gateway.ledger"] == []
 
 
 def test_settle_speech_stores_audio_seconds_and_error_code(conn: Conn) -> None:
@@ -343,7 +366,13 @@ def test_ledger_requires_an_autocommit_connection(database_url: str, conn: Conn)
                 call()
 
 
-def test_concurrent_reservations_never_exceed_cap(database_url: str, conn: Conn) -> None:
+@pytest.mark.parametrize("isolation", ["read committed", "repeatable read", "serializable"])
+def test_concurrent_reservations_never_exceed_cap(
+    database_url: str, conn: Conn, isolation: str
+) -> None:
+    # The cap must hold whatever default isolation the session has: under repeatable read a
+    # snapshot taken before the lock was granted would miss reservations committed while waiting.
+    options = f"-c default_transaction_isolation={isolation.replace(' ', chr(92) + ' ')}"
     workers = 20
     caps = Caps(Decimal("1.00"), None, None)
     barrier = threading.Barrier(workers, timeout=30)
@@ -352,7 +381,7 @@ def test_concurrent_reservations_never_exceed_cap(database_url: str, conn: Conn)
 
     def worker(index: int) -> None:
         try:
-            with db.connect(database_url, autocommit=True) as own:
+            with db.connect(database_url, autocommit=True, options=options) as own:
                 barrier.wait()
                 try:
                     _reserve(own, "0.10", caps=caps, end_user_id=f"user-{index}")

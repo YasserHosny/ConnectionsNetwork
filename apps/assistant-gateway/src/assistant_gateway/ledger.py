@@ -5,8 +5,9 @@ reserved, expired and unknown entries; released entries count nothing. Windows a
 month and day in the app's timezone (`periods`), matched on ``created_at``.
 
 `reserve` serialises per app with a transaction-scoped advisory lock, so concurrent requests
-cannot overshoot a cap together. The lock is ``pg_advisory_xact_lock``, which is safe behind
-Supabase's transaction pooler because it is released when the transaction ends.
+cannot overshoot a cap together. It forces read committed first, so the guarantee does not depend
+on the session's default isolation level. The lock is ``pg_advisory_xact_lock``, which is safe
+behind Supabase's transaction pooler because it is released when the transaction ends.
 
 **Connections must be in autocommit mode.** Every function here opens and owns its transaction
 with ``conn.transaction()``. On a connection that is not autocommit, psycopg may already hold an
@@ -25,6 +26,7 @@ closing an entry can only lower counted spend.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, Decimal
@@ -37,6 +39,8 @@ import psycopg
 from assistant_gateway.config import AppConfig, UseCaseConfig
 from assistant_gateway.periods import day_window, month_window, period_window
 from assistant_gateway.pricing import Usage
+
+logger = logging.getLogger(__name__)
 
 type CapName = Literal["app_monthly", "use_case_monthly", "user_daily"]
 
@@ -212,6 +216,10 @@ def reserve(
     month_start, month_end = month_window(now, tz)
     day_start, day_end = day_window(now, tz)
     with conn.transaction():
+        # Read committed, whatever the session default: under repeatable read or serializable the
+        # snapshot is taken at the first statement, before the lock is granted, and the spend query
+        # would miss reservations committed while waiting. This must stay the first statement.
+        conn.execute("set transaction isolation level read committed")
         conn.execute(_LOCK, (app,))
         conn.execute(_EXPIRE, {"app": app, "stale_before": now - STALE_AFTER})
         row = conn.execute(
@@ -263,7 +271,8 @@ def settle(
 ) -> None:
     """Record the actual cost (rounded up) of an open entry, with its token or audio usage."""
     _require_autocommit(conn)
-    _close(
+    actual = _money(actual_usd)
+    row = _close(
         conn,
         entry_id,
         """
@@ -274,10 +283,10 @@ def settle(
                audio_seconds = %(audio_seconds)s, error_code = %(error_code)s,
                settled_at = %(now)s
          where id = %(id)s and status = any(%(open)s)
-        returning id
+        returning id, app, reserved_usd
         """,
         {
-            "actual": _money(actual_usd),
+            "actual": actual,
             "input": usage.input_tokens if usage else None,
             "output": usage.output_tokens if usage else None,
             "cache_read": usage.cache_read_input_tokens if usage else None,
@@ -287,6 +296,19 @@ def settle(
             "now": datetime.now(UTC),
         },
     )
+    _, app, reserved = row
+    if actual > reserved:
+        # The worst case was meant to be an upper bound: a pricing or estimate bug if it is not.
+        # Ids and amounts only, never request content.
+        logger.warning(
+            "Settled above the reservation",
+            extra={
+                "entry_id": str(entry_id),
+                "app": app,
+                "reserved_usd": str(reserved),
+                "actual_usd": str(actual),
+            },
+        )
 
 
 def release(conn: psycopg.Connection[Any], entry_id: UUID, *, error_code: str) -> None:
@@ -365,11 +387,12 @@ def _set_status(status: Literal["released", "unknown"]) -> str:
 
 def _close(
     conn: psycopg.Connection[Any], entry_id: UUID, sql: str, params: dict[str, object]
-) -> None:
+) -> tuple[Any, ...]:
     with conn.transaction():
         row = conn.execute(sql, {**params, "id": entry_id, "open": list(_OPEN)}).fetchone()
     if row is None:
         raise LedgerStateError(f"ledger entry {entry_id} is missing or already closed")
+    return row
 
 
 def _require_autocommit(conn: psycopg.Connection[Any]) -> None:

@@ -108,6 +108,8 @@ def test_per_request_use_case_needs_a_model(
         {"messages": [{"role": "user", "content": "x" * 20001}]},
         {"end_user_id": ""},
         {"end_user_id": "u" * 129},
+        {"end_user_id": "u\x00x"},
+        {"end_user_id": "u\nx"},
         {"unexpected": 1},
     ],
     ids=[
@@ -117,6 +119,8 @@ def test_per_request_use_case_needs_a_model(
         "long_content",
         "empty_user",
         "long_user",
+        "nul_user",
+        "newline_user",
         "extra_field",
     ],
 )

@@ -37,12 +37,27 @@ of the hosted project, run:
 
 ```sql
 create role assistant_gateway login password '<a long generated password>';
+grant assistant_gateway to postgres;
 create schema assistant_gateway authorization assistant_gateway;
 ```
 
-Keep the password in your password manager; it goes only into the container's `AG_DATABASE_URL`
-(step 5). The role is not a superuser and does not bypass row-level security. The ledger does not
-use any Supabase table, so it needs no other grant.
+The `grant` is needed on Postgres 16 and later: `create schema ... authorization` fails unless the
+creating role may `set role` to the named one.
+
+Check the result in the same editor:
+
+```sql
+select rolname, rolsuper, rolbypassrls from pg_roles where rolname = 'assistant_gateway';
+select nspname, nspowner::regrole from pg_namespace where nspname = 'assistant_gateway';
+```
+
+The first must show `rolsuper` and `rolbypassrls` both `false`; the second must show the owner
+`assistant_gateway`.
+
+**Delete the saved SQL snippet.** The SQL editor keeps what you run, so remove the snippet that
+holds the role password. Keep the password in your password manager; it goes only into the
+container's `AG_DATABASE_URL` (step 5). The role is not a superuser and does not bypass row-level
+security. The ledger does not use any Supabase table, so it needs no other grant.
 
 `AG_DATABASE_URL` is the **transaction pooler** URL (port 6543), as that role. The role goes in
 the user name, like `connections_api` in the deploy checklist, step 4:
@@ -57,9 +72,16 @@ They are run by hand, like the API's migrations, and again after any release tha
 `apps/assistant-gateway/migrations/`. From any machine with Docker, using the image the first merge pushed
 (if its GHCR package is private, `docker login ghcr.io` first):
 
+The URL holds the role password, so keep it out of the shell history and the process list: read it
+without echo, hand it to Docker through a private env file, and delete the file afterwards.
+
 ```bash
-docker run --rm -e AG_DATABASE_URL='postgresql://assistant_gateway.<ref>:<password>@<pooler host>:6543/postgres' \
-  ghcr.io/<owner>/assistant-gateway python -m assistant_gateway.migrate
+umask 077
+read -rs -p 'AG_DATABASE_URL: ' AG_URL; echo       # paste the step 1 URL; nothing is shown
+printf 'AG_DATABASE_URL=%s\n' "$AG_URL" > ag.env   # mode 600 because of the umask
+unset AG_URL
+docker run --rm --env-file ag.env ghcr.io/<owner>/assistant-gateway python -m assistant_gateway.migrate
+rm -f ag.env
 ```
 
 Only `AG_DATABASE_URL` is needed. It prints `applied: 0001_ledger` the first time and
@@ -78,10 +100,13 @@ trial's `connections-trial` exists only in `config/local.yaml`, with its own has
 python -c "import secrets;print(secrets.token_urlsafe(48))"
 ```
 
-The output is the **key**. Compute its **sha256**:
+The output is the **key**. Put it in your password manager now; it is shown only once. Then compute
+its **sha256**, reading the key without echo so it never enters the shell history:
 
 ```bash
-printf '%s' '<the key>' | sha256sum | cut -d' ' -f1
+read -rs -p 'key: ' KEY; echo        # paste the key; nothing is shown
+printf '%s' "$KEY" | sha256sum | cut -d' ' -f1
+unset KEY
 ```
 
 - The 64-character hash goes in `AG_CONNECTIONS_KEY_HASH` on the gateway container. The name is

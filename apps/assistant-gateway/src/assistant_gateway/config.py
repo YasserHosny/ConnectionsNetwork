@@ -54,6 +54,8 @@ def _to_zone(value: object) -> ZoneInfo:
 
 
 type Money = Annotated[Decimal, BeforeValidator(_to_decimal), Field(ge=0, allow_inf_nan=False)]
+# A price of zero would make a metered call free in the ledger, so prices are strictly positive.
+type Price = Annotated[Decimal, BeforeValidator(_to_decimal), Field(gt=0, allow_inf_nan=False)]
 type Fraction = Annotated[
     Decimal, BeforeValidator(_to_decimal), Field(ge=0, le=1, allow_inf_nan=False)
 ]
@@ -64,14 +66,14 @@ class _Model(BaseModel):
 
 
 class _RawModelPrice(_Model):
-    input: Money
-    output: Money
-    cache_write: Money
-    cache_read: Money
+    input: Price
+    output: Price
+    cache_write: Price
+    cache_read: Price
 
 
 class _RawSpeechPrice(_Model):
-    per_minute: Money
+    per_minute: Price
 
 
 class ProviderConfig(_Model):

@@ -20,6 +20,7 @@ from assistant_gateway.providers.llm import LlmProvider, LlmResult
 from assistant_gateway.rate_limit import app_rate_limit
 from assistant_gateway.routes.common import (
     BudgetOut,
+    EndUserId,
     close_entry,
     gateway_config,
     ledger_connection,
@@ -41,7 +42,7 @@ class LlmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     use_case: str = Field(min_length=1)
-    end_user_id: str = Field(min_length=1, max_length=128)
+    end_user_id: EndUserId
     system: str = Field(min_length=1)
     context: str | None = None
     messages: list[LlmMessage] = Field(min_length=1, max_length=40)

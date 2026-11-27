@@ -2,7 +2,8 @@
 
 The gateway handles prompts, transcripts and audio, and none of it may reach a log line. Request
 bodies are never logged at all; a record carries the trace id, method, path and status. Secrets
-(bearer tokens, API keys) are still masked by pattern, in case one ends up in an exception text.
+(bearer tokens, API keys) are still masked by pattern. An exception is logged as its class name
+only, never its message or traceback.
 """
 
 from __future__ import annotations
@@ -162,8 +163,10 @@ class JsonFormatter(logging.Formatter):
             "trace_id": get_trace_id(),
         }
 
-        if record.exc_info:
-            payload["exception"] = redact(self.formatException(record.exc_info))
+        # The class name only. An exception's message and traceback can quote request content
+        # (a prompt, an id the database rejected), and regex redaction cannot be trusted with it.
+        if record.exc_info and record.exc_info[0] is not None:
+            payload["exc_type"] = record.exc_info[0].__name__
 
         for key, value in record.__dict__.items():
             if key in _RESERVED_LOG_RECORD_KEYS or key.startswith("_"):

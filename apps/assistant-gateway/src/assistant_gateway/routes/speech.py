@@ -20,6 +20,7 @@ from assistant_gateway.providers.speech import SpeechProvider
 from assistant_gateway.rate_limit import app_rate_limit
 from assistant_gateway.routes.common import (
     BudgetOut,
+    EndUserId,
     close_entry,
     gateway_config,
     ledger_connection,
@@ -51,7 +52,7 @@ def post_transcribe(
     request: Request,  # SlowAPI reads the request to key the limit
     file: Annotated[UploadFile, File()],
     use_case: Annotated[str, Form(min_length=1)],
-    end_user_id: Annotated[str, Form(min_length=1, max_length=128)],
+    end_user_id: Annotated[EndUserId, Form()],
     ctx: Annotated[AppContext, Depends(current_app)],
     registry: Annotated[Mapping[str, SpeechProvider], Depends(get_speech)],
     language: Annotated[str | None, Form()] = None,

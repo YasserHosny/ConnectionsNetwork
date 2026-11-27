@@ -42,6 +42,15 @@ def test_status_requires_a_known_key(client: TestClient) -> None:
     assert r.json()["code"] == "auth.unauthenticated"
 
 
+@pytest.mark.parametrize("end_user_id", ["u\x00x", "u\nx", ""])
+def test_status_rejects_control_characters_in_the_end_user_id(
+    client: TestClient, auth: dict[str, str], end_user_id: str
+) -> None:
+    r = client.get("/v1/status", params={**Q, "end_user_id": end_user_id}, headers=auth)
+    assert r.status_code == 422
+    assert r.json()["code"] == "validation.invalid_request"
+
+
 def test_status_with_no_spend(client: TestClient, auth: dict[str, str]) -> None:
     body = client.get("/v1/status", params=Q, headers=auth).json()
     assert body["budget"] == {"used_usd": 0.0, "cap_usd": 5.0, "warning": False, "exhausted": False}

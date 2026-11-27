@@ -51,7 +51,12 @@ def period_window(period: str, tz: ZoneInfo) -> tuple[datetime, datetime]:
         first = date(int(match[1]), int(match[2]), 1)
     except ValueError:  # year 0000 or month 00 / 13+
         raise InvalidPeriod("period must look like YYYY-MM") from None
-    return _month_bounds(first, tz)
+    try:
+        return _month_bounds(first, tz)
+    except (ValueError, OverflowError):
+        # 9999-12 ends in year 10000, which `date` cannot hold; 0001-01 east of UTC starts
+        # before the earliest UTC instant.
+        raise InvalidPeriod("period is outside the representable months") from None
 
 
 def day_window(now: datetime, tz: ZoneInfo) -> tuple[datetime, datetime]:

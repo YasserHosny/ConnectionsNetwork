@@ -1,17 +1,16 @@
 # No `from __future__ import annotations`: SlowAPI's wrapper has its own module globals, so FastAPI
 # could not resolve this endpoint's string annotations.
-from typing import Annotated, Any
+from typing import Annotated
 
-import psycopg
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 
 from assistant_gateway import ledger
 from assistant_gateway.auth import AppContext, current_app
-from assistant_gateway.db import request_connection
 from assistant_gateway.errors import GatewayError
 from assistant_gateway.periods import InvalidPeriod
 from assistant_gateway.rate_limit import app_rate_limit
+from assistant_gateway.routes.common import ledger_connection
 
 router = APIRouter(prefix="/v1", tags=["usage"])
 
@@ -48,12 +47,13 @@ class UsageResponse(BaseModel):
 def get_usage(
     request: Request,  # noqa: ARG001  SlowAPI reads the request to key the limit
     ctx: Annotated[AppContext, Depends(current_app)],
-    conn: Annotated[psycopg.Connection[Any], Depends(request_connection)],
     period: Annotated[str, Query()],
 ) -> UsageResponse:
     """The calling app's calls, tokens, audio and cost in one month (``YYYY-MM``)."""
     try:
-        report = ledger.usage_report(conn, app=ctx.name, period=period, tz=ctx.config.timezone)
+        # Opened here, not as a dependency, so a rate-limited request opens no connection.
+        with ledger_connection() as conn:
+            report = ledger.usage_report(conn, app=ctx.name, period=period, tz=ctx.config.timezone)
     except InvalidPeriod:
         raise GatewayError(
             422, "invalid_period", "period must be a month written YYYY-MM, e.g. 2026-11."

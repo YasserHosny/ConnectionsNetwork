@@ -1,16 +1,14 @@
 # No `from __future__ import annotations`: SlowAPI's wrapper has its own module globals, so FastAPI
 # could not resolve this endpoint's string annotations.
-from typing import Annotated, Any
+from typing import Annotated
 
-import psycopg
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 
 from assistant_gateway import ledger
 from assistant_gateway.auth import AppContext, current_app, use_case_of
-from assistant_gateway.db import request_connection
 from assistant_gateway.rate_limit import app_rate_limit
-from assistant_gateway.routes.common import EndUserId
+from assistant_gateway.routes.common import EndUserId, ledger_connection
 
 router = APIRouter(prefix="/v1", tags=["status"])
 
@@ -38,20 +36,22 @@ class StatusResponse(BaseModel):
 def get_status(
     request: Request,  # noqa: ARG001  SlowAPI reads the request to key the limit
     ctx: Annotated[AppContext, Depends(current_app)],
-    conn: Annotated[psycopg.Connection[Any], Depends(request_connection)],
     use_case: Annotated[str, Query(min_length=1)],
     end_user_id: Annotated[EndUserId, Query()],  # noqa: ARG001
 ) -> StatusResponse:
     """What an app may expect now: the use case's speech mode and the app's monthly budget."""
     case = use_case_of(ctx, use_case)
     budget = ctx.config.budget
-    snap = ledger.snapshot(
-        conn,
-        app=ctx.name,
-        cap_usd=budget.monthly_cap_usd,
-        warn_at=budget.warn_at,
-        tz=ctx.config.timezone,
-    )
+    # Opened here, not as a dependency: dependencies resolve before SlowAPI's check, so a
+    # rate-limited request would still open (and close) a connection.
+    with ledger_connection() as conn:
+        snap = ledger.snapshot(
+            conn,
+            app=ctx.name,
+            cap_usd=budget.monthly_cap_usd,
+            warn_at=budget.warn_at,
+            tz=ctx.config.timezone,
+        )
     return StatusResponse(
         speech=SpeechStatus(mode=case.speech.mode, language=case.speech.language),
         available=not snap.exhausted,

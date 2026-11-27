@@ -9,7 +9,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from assistant_gateway.logging import get_trace_id, redact
+from assistant_gateway.logging import (
+    TRACE_ID_HEADER,
+    get_trace_id,
+    redact,
+    reset_trace_id,
+    set_trace_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,19 +87,29 @@ async def http_error_handler(_request: Request, exc: Exception) -> JSONResponse:
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # Method and path only: the query string and body can carry prompts, transcripts or tokens.
-    # The exception text can quote request content, so log the class name and no traceback.
-    logger.error(
-        "Unhandled request exception: %s",
-        type(exc).__name__,
-        extra={"path": request.url.path, "method": request.method},
-    )
-    return _error_response(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        code="internal_error",
-        message="Request could not be completed.",
-        details=None,
-    )
+    # This runs outside TraceIdMiddleware, whose trace context is already reset; the request's
+    # id is on its state. Use it for the log line, the envelope and the header alike.
+    trace_id: str = getattr(request.state, "trace_id", None) or get_trace_id()
+    token = set_trace_id(trace_id)
+    try:
+        # Method and path only: the query string and body can carry prompts, transcripts or
+        # tokens. The exception text can quote request content, so log the class name and no
+        # traceback.
+        logger.error(
+            "Unhandled request exception: %s",
+            type(exc).__name__,
+            extra={"path": request.url.path, "method": request.method},
+        )
+        response = _error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="internal_error",
+            message="Request could not be completed.",
+            details=None,
+        )
+    finally:
+        reset_trace_id(token)
+    response.headers[TRACE_ID_HEADER] = trace_id
+    return response
 
 
 def _error_response(

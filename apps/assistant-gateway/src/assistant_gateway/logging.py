@@ -35,6 +35,8 @@ __all__ = [
 ]
 
 TRACE_ID_HEADER = "X-Trace-Id"
+# A caller's own trace id is kept when, stripped, it is 1 to this many characters.
+MAX_TRACE_ID_LENGTH = 128
 REDACTED = "[REDACTED]"
 
 _trace_id: ContextVar[str | None] = ContextVar("trace_id", default=None)
@@ -205,8 +207,11 @@ class TraceIdMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        incoming_trace_id = request.headers.get(TRACE_ID_HEADER)
-        trace_id = incoming_trace_id.strip() if incoming_trace_id else new_trace_id()
+        incoming = (request.headers.get(TRACE_ID_HEADER) or "").strip()
+        trace_id = incoming if 0 < len(incoming) <= MAX_TRACE_ID_LENGTH else new_trace_id()
+        # The context variable is reset before an unhandled exception reaches its handler (in
+        # Starlette's outermost middleware), so the handler reads the id from the request state.
+        request.state.trace_id = trace_id
         token = set_trace_id(trace_id)
         try:
             response = await call_next(request)

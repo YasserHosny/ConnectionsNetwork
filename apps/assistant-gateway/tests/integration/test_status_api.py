@@ -97,3 +97,33 @@ def test_rate_limit_is_per_app_key(
     assert r.json()["code"] == "rate_limited"
     assert set(r.json()) == {"code", "message", "details", "trace_id"}
     assert client.get("/v1/status", params=Q, headers=other_auth).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("path", "params"),
+    [("/v1/status", Q), ("/v1/usage", {"period": "2026-11"})],
+)
+def test_a_rate_limited_request_opens_no_database_connection(
+    client: TestClient,
+    auth: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    params: dict[str, str],
+) -> None:
+    opened: list[None] = []
+    real_connect = db.connect
+
+    def counting_connect(*args: Any, **kwargs: Any) -> psycopg.Connection[Any]:  # noqa: ANN401
+        opened.append(None)
+        return real_connect(*args, **kwargs)
+
+    # Both places a route can open one from: the dependency in db, and routes.common.
+    monkeypatch.setattr("assistant_gateway.db.connect", counting_connect)
+    monkeypatch.setattr("assistant_gateway.routes.common.connect", counting_connect)
+    for _ in range(60):
+        assert client.get(path, params=params, headers=auth).status_code == 200
+    assert opened  # the admitted requests did use the database
+    opened.clear()
+    r = client.get(path, params=params, headers=auth)
+    assert r.status_code == 429
+    assert opened == []

@@ -8,7 +8,6 @@ prepared statement's name. Every connection therefore disables server-side prepa
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import Any
 
 import psycopg
@@ -26,15 +25,3 @@ def connect(dsn: str | None = None, **kwargs: object) -> psycopg.Connection[Any]
         dsn = get_settings().ag_database_url.get_secret_value()
     kwargs["prepare_threshold"] = None
     return psycopg.connect(dsn, **kwargs)  # type: ignore[arg-type]
-
-
-def request_connection() -> Iterator[psycopg.Connection[Any]]:
-    """FastAPI dependency: an autocommit connection for one request, closed afterwards.
-
-    Autocommit is what the ledger requires; it opens and owns its own transactions.
-    """
-    conn = connect(autocommit=True)
-    try:
-        yield conn
-    finally:
-        conn.close()

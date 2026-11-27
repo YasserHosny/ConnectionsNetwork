@@ -113,3 +113,26 @@ def test_period_window_rejects_anything_but_yyyy_mm(period: str) -> None:
 
     with pytest.raises(InvalidPeriod):
         period_window(period, CAIRO)
+
+
+@pytest.mark.parametrize(
+    ("period", "tz"),
+    [
+        ("9999-12", UTC),  # the month after it is year 10000, which `date` cannot hold
+        ("9999-12", CAIRO),
+        ("0001-01", CAIRO),  # local midnight is before 0001-01-01 00:00 UTC: OverflowError
+    ],
+)
+def test_period_window_refuses_months_whose_bounds_cannot_be_represented(
+    period: str, tz: ZoneInfo
+) -> None:
+    from assistant_gateway.periods import InvalidPeriod, period_window
+
+    with pytest.raises(InvalidPeriod):
+        period_window(period, tz)
+
+
+def test_the_first_representable_month_in_utc_is_still_valid() -> None:
+    from assistant_gateway.periods import period_window
+
+    assert period_window("0001-01", ZoneInfo("UTC"))[0] == datetime(1, 1, 1, tzinfo=UTC)

@@ -5,22 +5,20 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from assistant_gateway.db import request_connection
 from assistant_gateway.main import create_app
 
 Q = {"use_case": "person_add", "end_user_id": "user-1"}
 
 
 @pytest.fixture
-def no_db_client() -> Iterator[TestClient]:
+def no_db_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """Requests that fail before the database must not need one."""
-    app = create_app(check_migrations=False)
 
-    def _no_connection() -> Iterator[None]:
-        yield None
+    def _no_connection(*_a: object, **_k: object) -> None:
+        raise AssertionError("a refused request must not open a database connection")
 
-    app.dependency_overrides[request_connection] = _no_connection
-    with TestClient(app) as c:
+    monkeypatch.setattr("assistant_gateway.routes.common.connect", _no_connection)
+    with TestClient(create_app(check_migrations=False)) as c:
         yield c
 
 

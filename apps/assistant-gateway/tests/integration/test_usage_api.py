@@ -258,3 +258,13 @@ def test_usage_rate_limit_is_per_app_key(
         assert _get(client, auth).status_code == 200
     assert _get(client, auth).status_code == 429
     assert _get(client, other_auth).status_code == 200
+
+
+@pytest.mark.parametrize("period", ["9999-12", "0001-01"])
+def test_usage_refuses_a_month_whose_bounds_cannot_be_represented(
+    client: TestClient, auth: dict[str, str], period: str
+) -> None:
+    # The connections app is on Africa/Cairo: 0001-01 starts before the earliest UTC instant.
+    r = client.get("/v1/usage", params={"period": period}, headers=auth)
+    assert r.status_code == 422
+    assert r.json()["code"] == "invalid_period"

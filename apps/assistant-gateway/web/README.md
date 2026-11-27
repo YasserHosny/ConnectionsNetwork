@@ -67,7 +67,7 @@ mirrors it in a `data-state` attribute for styling.
 
 The shadow root holds a real `<button type="button">` with `aria-pressed` (true while listening
 or recording) and an accessible name from the `label-*` attributes. Interim text goes into a
-`<span aria-live="polite">`. In server mode a visual elapsed-time clock is `aria-hidden`, so a
+`<span aria-live="polite">`. In server mode, while the browser's microphone permission prompt is open the button carries `aria-busy="true"` and stays enabled: pressing it again cancels the attempt (a dismissed Firefox prompt never settles). In server mode a visual elapsed-time clock is `aria-hidden`, so a
 screen reader is not interrupted every second. The `part` names `interim` and `timer` are
 available for styling with `::part()`.
 

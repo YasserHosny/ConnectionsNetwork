@@ -226,6 +226,8 @@ export class VoiceCaptureElement extends HTMLElement {
         : (this.getAttribute('label-start') ?? DEFAULT_LABELS.start);
 
     this.#button.setAttribute('aria-pressed', String(active));
+    if (this.#starting) this.#button.setAttribute('aria-busy', 'true');
+    else this.#button.removeAttribute('aria-busy');
     this.#button.setAttribute('aria-label', label);
     this.#button.title = label;
     this.#button.disabled = unavailable;
@@ -271,7 +273,13 @@ export class VoiceCaptureElement extends HTMLElement {
   // --- Clicks and limits --------------------------------------------------------------------
 
   #onClick(): void {
-    if (this.#starting) return;
+    if (this.#starting) {
+      // The permission prompt is still open (a dismissed Firefox prompt never settles): this
+      // click cancels the attempt. The session guard releases a stream that resolves later.
+      this.#cancelSession();
+      this.#render();
+      return;
+    }
     if (this.#state === 'idle') {
       if (this.#mode === 'server') void this.#startServer();
       else this.#startBrowser();
@@ -423,6 +431,7 @@ export class VoiceCaptureElement extends HTMLElement {
     this.#cancelSession();
     const session = this.#session;
     this.#starting = true;
+    this.#render();
 
     let stream: MediaStream;
     try {
@@ -439,6 +448,7 @@ export class VoiceCaptureElement extends HTMLElement {
       return;
     }
     this.#starting = false;
+    this.#render();
     this.#stream = stream;
 
     const mimeType =

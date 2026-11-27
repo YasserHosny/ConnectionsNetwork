@@ -472,6 +472,65 @@ describe('server mode', () => {
     expect(audio).toHaveLength(0);
   });
 
+  describe('while the permission prompt is pending', () => {
+    function pendingStream() {
+      let resolve!: (s: unknown) => void;
+      const promise = new Promise((r) => (resolve = r));
+      return { promise, resolve, ...stubStream() };
+    }
+
+    it('shows aria-busy while pending and removes it once recording starts', async () => {
+      const p = pendingStream();
+      getUserMedia.mockReturnValueOnce(p.promise);
+      const el = mount(make({ mode: 'server' }));
+      expect(button(el).hasAttribute('aria-busy')).toBe(false);
+      button(el).click();
+      expect(button(el).getAttribute('aria-busy')).toBe('true');
+      expect(button(el).disabled).toBe(false);
+      p.resolve(p.stream);
+      await vi.waitFor(() => expect(el.state).toBe('recording'));
+      expect(button(el).hasAttribute('aria-busy')).toBe(false);
+    });
+
+    it('cancels on a second click, stops the late stream and emits no audio', async () => {
+      const p = pendingStream();
+      getUserMedia.mockReturnValueOnce(p.promise);
+      const el = mount(make({ mode: 'server' }));
+      const audio = events(el, 'audio');
+      button(el).click();
+      button(el).click(); // cancel
+      expect(el.state).toBe('idle');
+      expect(button(el).hasAttribute('aria-busy')).toBe(false);
+      expect(button(el).getAttribute('aria-pressed')).toBe('false');
+
+      p.resolve(p.stream);
+      await vi.waitFor(() => expect(p.track.stop).toHaveBeenCalled());
+      expect(el.state).toBe('idle');
+      expect(FakeRecorder.instances).toHaveLength(0);
+      expect(audio).toHaveLength(0);
+    });
+
+    it('starts normally again after a cancel', async () => {
+      const first = pendingStream();
+      getUserMedia.mockReturnValueOnce(first.promise);
+      const el = mount(make({ mode: 'server' }));
+      const audio = events(el, 'audio');
+      button(el).click();
+      button(el).click(); // cancel
+      button(el).click(); // second start, uses the default resolved stream
+      await vi.waitFor(() => expect(el.state).toBe('recording'));
+
+      first.resolve(first.stream); // the stale prompt resolving late must not disturb it
+      await vi.waitFor(() => expect(first.track.stop).toHaveBeenCalled());
+      expect(el.state).toBe('recording');
+      expect(track.stop).not.toHaveBeenCalled();
+
+      button(el).click();
+      expect(el.state).toBe('idle');
+      expect(audio).toHaveLength(1);
+    });
+  });
+
   it('releases the microphone if removed while the permission prompt is open', async () => {
     let resolve!: (s: unknown) => void;
     const { track: t, stream } = stubStream();
